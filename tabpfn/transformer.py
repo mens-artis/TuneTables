@@ -153,7 +153,11 @@ class TransformerModel(nn.Module):
             else:
                 y_src = torch.cat([y_src.unsqueeze(1), self.prefix_y_embedding.to(self.prefix_embedding.weight.device)], 0)
 
+        #x_src = self.prefix_embedding.weight
+        #y_src = self.prefix_y_embedding.unsqueeze(1).to(self.prefix_embedding.weight.device)
+        
         y_src = self.y_encoder(y_src.unsqueeze(-1) if len(y_src.shape) < len(x_src.shape) else y_src)
+
 
         style_src = self.style_encoder(style_src).unsqueeze(0) if self.style_encoder else \
             torch.tensor([], device=x_src.device)

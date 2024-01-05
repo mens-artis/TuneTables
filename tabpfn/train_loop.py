@@ -11,6 +11,9 @@ from priors.utils import uniform_int_sampler_f
 from notebook_utils import *
 from utils import get_wandb_api_key
 
+os.environ["WANDB_API_KEY"] = "1f23ab4cce0ac3852702eca5e3a176732a0752a4"
+
+
 def train_function(config_sample, i=0, add_name=''):
 
     if config_sample['boosting'] or config_sample['rand_init_ensemble'] or config_sample['bagging']:
@@ -31,6 +34,7 @@ def train_function(config_sample, i=0, add_name=''):
             save_model(model, config_sample['base_path'], f'prior_diff_real_checkpoint{add_name}_n_{i}_epoch_{model.last_saved_epoch}.cpkt',
                            config_sample)
             model.last_saved_epoch = model.last_saved_epoch + 1 # TODO: Rename to checkpoint
+
 
         # save to wandb
         if config_sample['wandb_log'] and len(epochs) % config_sample['wandb_log_test_interval'] == 0:
@@ -104,6 +108,10 @@ def train_loop():
     parser.add_argument('--feature_subset_method', type=str, default='mutual_information', help='Method for feature subset selection ("mutual_information, random").')
     parser.add_argument('--pad_features', action='store_true', help='Whether to pad features to the maximum number of features.')
     parser.add_argument('--zs-eval-ensemble', type=int, default=0, help='Whether to do ensembled zero-shot evaluation.')
+    parser.add_argument('--wandb_project_name', type=str, default="tabpfn", help='wandb project name')
+
+
+
     args = parser.parse_args()
 
     config, model_string = reload_config(longer=1)
@@ -237,9 +245,9 @@ def train_loop():
     # todo: for now, most are hard-coded
     config_sample['wandb_log'] = args.wandb_log
     config_sample['wandb_name'] = args.wandb_name
-    config_sample['wandb_group'] = 'abacus'
-    config_sample['wandb_project'] = 'tabpfn'
-    config_sample['wandb_entity'] = 'crwhite14'
+    config_sample['wandb_group'] = 'nyu-dice-lab'
+    config_sample['wandb_project'] = args.wandb_project_name #'tabpfn-niv-try2'
+    config_sample['wandb_entity'] = 'nyu-dice-lab'
     config_sample['wandb_log_test_interval'] = 1
 
 
@@ -258,7 +266,7 @@ def train_loop():
         return config_sample
     
     config_sample_copy = make_serializable(config_sample_copy)
-    
+        
     os.mkdir(f'{config_sample["base_path"]}/{model_string}')
     config_sample['base_path'] = f'{config_sample["base_path"]}/{model_string}'
 
@@ -267,11 +275,13 @@ def train_loop():
 
     if config_sample['wandb_log']:
         wandb.login(key=get_wandb_api_key())
+        #wandb.init(config=config_sample, name=config_sample['wandb_name'], group=config_sample['wandb_group'],
+        #        project=config_sample['wandb_project'], entity=config_sample['wandb_entity'])
         wandb.init(config=config_sample, name=config_sample['wandb_name'], group=config_sample['wandb_group'],
                 project=config_sample['wandb_project'], entity=config_sample['wandb_entity'])
 
     print("Training model ...")
-
+    
     train_function(config_sample, 0, model_string)
 
     if config_sample['wandb_log']:

@@ -28,7 +28,7 @@ from torch.cuda.amp import autocast, GradScaler
 from torch import nn
 
 import numpy as np
-
+import wandb
 import uncertainty_metrics.numpy as um
 
 class Losses():
@@ -398,8 +398,10 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                 ec.concatenated_y_embedding = ec.original_y_embedding
                 ec.prefix_size = ec.original_prefix_size
             else:
+                print("ec.concatenated_embedding",ec.original_embedding.shape)
                 ec.concatenated_embedding = torch.cat([ec.original_embedding.to(device)] + [ec.prefix_weights[i]['prefix_weights'].to(device) for i in range(num_to_concat-1)], dim=0).to(device)
                 ec.concatenated_y_embedding = torch.cat([ec.original_y_embedding.to(device)] + [ec.prefix_weights[i]['prefix_y_labels'].to(device) for i in range(num_to_concat-1)], dim=0).to(device)
+                print("ec.concatenated_embedding",ec.concatenated_embedding.shape)
                 if "size-ctl" in method:
                     #select random sample of size prefix_size
                     if "perm" in method:
@@ -442,6 +444,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         prefix_y_fn = f"prefix_y_labels_{i}.npy"
         prefix_y_save_path = os.path.join(path, prefix_y_fn)
         np.save(prefix_y_save_path, prefix_y_labels)
+        print("******** prefix_weights ********",prefix_weights.shape)
         if do_concat:
             prefix_weights_l.append({"prefix_weights": torch.from_numpy(prefix_weights).float(), "prefix_y_labels": torch.from_numpy(prefix_y_labels)})
             print("Prefix weights list length: ", len(prefix_weights_l))
@@ -516,6 +519,9 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                     np_targets_nc_t = test_targets.cpu().numpy().astype(np.int32)
                     test_ece_nc = np.round(um.ece(np_targets_nc_t, np_outputs_nc_t, num_bins=30), 3)
                     test_tace_nc = np.round(um.tace(np_targets_nc_t, np_outputs_nc_t, num_bins=30), 3)
+
+
+
             elif hasattr(dl, 'validate') and epoch % validation_period == 0:
                 with torch.no_grad():
                     val_score = dl.validate(model)
@@ -544,6 +550,10 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                     + (f' | val score concat {val_score_concat}' if val_score_concat is not None else '')
                     + (f' | val score nc concat {val_score_nc_concat}' if val_score_nc_concat is not None else '')
                 )
+
+
+
+
                 print('-' * 89)
                 if val_score is not None:
                     # save the log to a json file
@@ -578,6 +588,25 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
 
             # stepping with wallclock time based scheduler
             scheduler.step()
+
+
+        wandb.log({
+                        "val_score_final": val_score,
+                        "val_score_nc_final": val_score_nc,
+                        "test_score_final": test_score,
+                        "test_score_nc_final": test_score_nc,
+                        "val_ece_final": val_ece,
+                        "val_tace_final": val_tace,
+                        "test_ece_final": test_ece,
+                        "test_tace_final": test_tace,
+                        "val_ece_nc_final": val_ece_nc,
+                        "val_tace_nc_final": val_tace_nc,
+                        "test_ece_nc_final": test_ece_nc,
+                        "test_tace_nc_final": test_tace_nc,
+                        "val_score_concat_final": val_score_concat,
+                        "val_score_nc_concat_final": val_score_nc_concat,
+                    })
+
         return return_outputs, return_targets, res_dict
 
     # main training loop
@@ -629,6 +658,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
     except KeyboardInterrupt:
         pass
 
+
     # boosting logic
     if is_ensemble:
         for i in range(1, boosting_n_iters):
@@ -651,6 +681,8 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
             print("Ensembling iteration: ", i+1, " of ", boosting_n_iters, "\n \n")
             model.init_prefix_weights()
             output_dict[i], test_targets, results_dict = train_test_loop(model, optimizer)
+            if do_prompt_tuning:
+                prefix_weights_l = save_prefix_weights(model, extra_prior_kwargs_dict.get('save_path'), i, do_concat, prefix_weights_l)
             prior_grad_dict = gradient_dict
 
             #No need to save ensembled results if we are concatenating; regular results are accurate

@@ -76,8 +76,19 @@ def objective(trial):
 
     config['bptt'] = trial.suggest_int('bptt', 128, 8192, log=True)
     config['lr'] = trial.suggest_float('lr', .0001, .3)
-    config['aggregate_k_gradients'] = trial.suggest_int('aggregate_k_gradients', 1, 8)
+    config['aggregate_k_gradients'] = trial.suggest_int('aggregate_k_gradients', 1, 2)
+    config['tuned_prompt_label_balance'] = trial.suggest_categorical('tuned_prompt_label_balance', ['equal', 'proportional'])
+    config['pad_features'] = trial.suggest_categorical('pad_features', [False, True])
+    config['ens_random_feature_rotation'] = trial.suggest_categorical('ens_random_feature_rotation', [False, True])
+    config['efficient_eval_masking'] = trial.suggest_categorical('efficient_eval_masking', [False, True])
+    #config_sample['subset_features_method'] = trial.suggest_categorical('subset_features_method', ['random', 'first', 'mutual_information'])
 
+    config['subset_features_method'] = 'mutual_information'
+    config['subset_features'] = 100
+    config['subset_rows'] = -1
+    config['subset_rows_method'] = 'random'
+
+    config['zs_eval_ensemble'] = False
     config['model_string'] = model_string
     config['prompt_tuning'] = True
     config['tuned_prompt_size'] = 1000
@@ -85,6 +96,7 @@ def objective(trial):
     config['split'] = 0
     config['data_path'] = "/home/colin/TabPFN-pt/tabpfn/data/openml__airlines__189354"
     config['concat_method'] = ""
+    config['validation_period'] = 10
 
     prior_type = "real"
     if prior_type == 'prior_bag':
@@ -110,7 +122,7 @@ def objective(trial):
     # config["max_features"] = 100
 
     config["device"] = 'cuda'
-    config["base_path"] = "."
+    config["base_path"] = "./logs"
 
     # diff
     config['output_multiclass_ordered_p'] = 0.
@@ -154,7 +166,7 @@ def objective(trial):
     config['emsize'] = 512
     config['nhead'] = config['emsize'] // 128
     config['canonical_y_encoder'] = False
-    config['rand_seed'] = 100
+    config['rand_seed'] = 135798642
 
     config['num_steps'] = 1024//config['aggregate_k_gradients']
     config['epochs'] = 31
@@ -186,7 +198,7 @@ def objective(trial):
     # wandb
     # todo: for now, most are hard-coded
     config['wandb_log'] = True
-    config['wandb_name'] = 'optuna_airlines_{}'.format(trial.number)
+    config['wandb_name'] = 'optuna2_airlines_{}'.format(trial.number)
     config['wandb_group'] = 'abacus'
     config['wandb_project'] = 'tabpfn'
     config['wandb_entity'] = 'crwhite14'
@@ -228,7 +240,10 @@ def objective(trial):
     print("Training model ...")
 
     # run training routine
-    results_dict = train_function(config_sample, 0, model_string)
+    try:
+        results_dict = train_function(config_sample, 0, model_string)
+    except:
+        results_dict = {'val_score': 0}
 
     if config_sample['wandb_log']:
         wandb.finish()

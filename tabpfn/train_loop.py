@@ -13,6 +13,16 @@ from utils import get_wandb_api_key
 
 os.environ["WANDB_API_KEY"] = "1f23ab4cce0ac3852702eca5e3a176732a0752a4"
 
+def make_serializable(config_sample):
+    if isinstance(config_sample, torch.Tensor):
+        config_sample = "tensor"
+    if isinstance(config_sample, dict):
+        config_sample = {k: make_serializable(config_sample[k]) for k in config_sample}
+    if isinstance(config_sample, list):
+        config_sample = [make_serializable(v) for v in config_sample]
+    if callable(config_sample):
+        config_sample = str(config_sample)
+    return config_sample
 
 def train_function(config_sample, i=0, add_name=''):
 
@@ -87,7 +97,9 @@ def train_loop():
     parser.add_argument('--lr', type=float, default=0.0001, help='Learning rate.')
     parser.add_argument('--batch_size', type=int, default=4, help='Batch size.')
     parser.add_argument('--bptt', type=int, default=1152, help='Batch per train time.')
+    parser.add_argument('--uniform_bptt', action='store_true', help='Whether to use uniform bptt.')
     parser.add_argument('--seed', type=int, default=135798642, help='Random seed.')
+    parser.add_argument('--early_stopping', type=int, default=2, help='Patience (for early stopping).')
     parser.add_argument('--epochs', type=int, default=400, help='Number of epochs to train for.')
     parser.add_argument('--num_eval_fitting_samples', type=int, default=1000, help='How many samples from the training set to draw when fitting the eval set.')
     parser.add_argument('--split', type=int, default=0, help='Which split to use (0-9?).')
@@ -97,6 +109,8 @@ def train_loop():
     parser.add_argument('--ensemble_lr', type=float, default=0.5, help='Additive learning factor for boosting / ensembling.')
     parser.add_argument('--ensemble_size', type=int, default=5, help='Number of ensemble members.')
     parser.add_argument('--ensemble_random_feature_rotation', action='store_true', help='Whether to randomly rotate features in the ensemble.')
+    parser.add_argument('--ens_random_subsets', action='store_true', help='Whether to apply random subsets to ensmbling.')
+    parser.add_argument('--ens_random_factor', type=float, default=0.5, help='How large to take the random subsets to ensmbling.')
     parser.add_argument('--aggregate_k_gradients', type=int, default=1, help='How many gradients to aggregate.')
     parser.add_argument('--average_ensemble', action='store_true', help='Whether to average the ensemble.')
     parser.add_argument('--permute_feature_position_in_ensemble', action='store_true', help='Whether to ensemble over feature position permutations.')
@@ -105,13 +119,15 @@ def train_loop():
     parser.add_argument('--validation_period', type=int, default=4, help='How often to validate.')
     parser.add_argument('--wandb_name', type=str, default='tabpfn_pt_airlines', help='Name for wandb logging.')
     parser.add_argument('--wandb_log', action='store_true', help='Whether to log to wandb.')
-    parser.add_argument('--feature_subset_method', type=str, default='mutual_information', help='Method for feature subset selection ("mutual_information, random").')
+    parser.add_argument('--wandb_group', type=str, default='temp', help='Group for wandb logging.')
+    parser.add_argument('--wandb_project', type=str, default='tabpfn-pt', help='Project for wandb logging.')
+    parser.add_argument('--wandb_entity', type=str, default='nyu-dice-lab', help='Entity for wandb logging.')
+    parser.add_argument('--feature_subset_method', type=str, default='mutual_information', help='Method for feature subset selection ("mutual_information, random, first, pca").')
     parser.add_argument('--pad_features', action='store_true', help='Whether to pad features to the maximum number of features.')
     parser.add_argument('--zs-eval-ensemble', type=int, default=0, help='Whether to do ensembled zero-shot evaluation.')
     parser.add_argument('--wandb_project_name', type=str, default="tabpfn", help='wandb project name')
-
-
-
+    parser.add_argument('--min_batches_per_epoch', type=int, default=1, help='Minimum number of batches per epoch.')
+    parser.add_argument('--keep_topk_ensemble', type=int, default=0, help='Whether to keep only the top-k ensemble members.')
     args = parser.parse_args()
 
     config, model_string = reload_config(longer=1)
@@ -124,6 +140,10 @@ def train_loop():
     config['zs_eval_ensemble'] = args.zs_eval_ensemble
     config['pad_features'] = args.pad_features
     config['validation_period'] = args.validation_period
+    config['early_stopping_patience'] = args.early_stopping
+    config['uniform_bptt'] = args.uniform_bptt
+    config['min_batches_per_epoch'] = args.min_batches_per_epoch
+    config['keep_topk_ensemble'] = args.keep_topk_ensemble
 
     # concatenation
     config['concat_method'] = args.concat_method
@@ -150,7 +170,8 @@ def train_loop():
     # config["max_samples"] = 10000 if config["large_datasets"] else 5000
     # config["bptt"] = 10000 if config["large_datasets"] else 3000
     # config["suite"]='cc'
-    # config["max_features"] = 100
+    
+    config["max_features"] = 100
 
     config["device"] = 'cuda'
     config["base_path"] = args.save_path
@@ -192,6 +213,10 @@ def train_loop():
     config['random_feature_rotation'] = False
     config['ens_random_feature_rotation'] = args.ensemble_random_feature_rotation
     config['rotate_normalized_labels'] = False
+
+    config['ens_random_subsets'] = args.ens_random_subsets
+    config['ens_random_factor'] = args.ens_random_factor
+
 
     config["mix_activations"] = False # False heisst eig True
 
@@ -248,22 +273,11 @@ def train_loop():
     config_sample['wandb_group'] = 'nyu-dice-lab'
     config_sample['wandb_project'] = args.wandb_project_name #'tabpfn-niv-try2'
     config_sample['wandb_entity'] = 'nyu-dice-lab'
-    config_sample['wandb_log_test_interval'] = 1
+    config_sample['wandb_log_test_interval'] = args.validation_period #1
 
 
     print("Saving config ...")
     config_sample_copy = config_sample.copy()
-
-    def make_serializable(config_sample):
-        if isinstance(config_sample, torch.Tensor):
-            config_sample = "tensor"
-        if isinstance(config_sample, dict):
-            config_sample = {k: make_serializable(config_sample[k]) for k in config_sample}
-        if isinstance(config_sample, list):
-            config_sample = [make_serializable(v) for v in config_sample]
-        if callable(config_sample):
-            config_sample = str(config_sample)
-        return config_sample
     
     config_sample_copy = make_serializable(config_sample_copy)
         
@@ -272,6 +286,8 @@ def train_loop():
 
     with open(f'{config_sample["base_path"]}/config_diff_real_{model_string}_n_{0}.json', 'w') as f:
         json.dump(config_sample_copy, f, indent=4)
+
+    print("Training model ...")
 
     if config_sample['wandb_log']:
         wandb.login(key=get_wandb_api_key())
@@ -290,4 +306,13 @@ def train_loop():
     print("Done")
 
 if __name__ == '__main__':
+    import signal
+    import sys
+
+    def signal_handler(sig, frame):
+        signal.signal(sig, signal.SIG_IGN)
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+
     train_loop()

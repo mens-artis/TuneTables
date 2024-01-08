@@ -342,7 +342,7 @@ class EmbeddingConcatenator():
         #extract embedding parameters
         if self.method == "duplicate":
             self.concatenated_embedding = torch.cat([self.original_embedding, self.original_embedding], dim=0).to(self.model.prefix_embedding.weight.device)
-            print("concatenated embedding shape: {}".format(self.concatenated_embedding.shape))
+            # print("concatenated embedding shape: {}".format(self.concatenated_embedding.shape))
             self.concatenated_y_embedding = torch.cat([self.original_y_embedding, self.original_y_embedding], dim=0).to(self.model.prefix_embedding.weight.device)
             self.prefix_size = self.original_prefix_size * 2
         else:
@@ -366,7 +366,7 @@ class EmbeddingConcatenator():
         self.model.freeze_parameters_except_prefix()
 
 
-def get_wandb_api_key(api_key_file="./wandb_api_key.txt"):
+def get_wandb_api_key(api_key_file="./config/wandb_api_key.txt"):
     # todo: if we make a config folder, put wandb_api_key.txt into the config folder
     try:
         return os.environ["WANDB_API_KEY"]

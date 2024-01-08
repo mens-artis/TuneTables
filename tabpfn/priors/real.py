@@ -1,25 +1,3 @@
-# this script is based on the TabSurvey script and function load_data, which returns a specific dataset (X, y).
-# instead, this script "prepares" each dataset implemented in our codebase, by doing the following:
-# - reading the dataset from a file or online source
-# - applying any necessary cleaning (no pre-processing, like encoding or scaling variables)
-# - writes each dataset to its own local directory. each dataset directory will contain:
-# -- a compressed version of the dataset (X.npy and y.npy)
-# -- a json containing metadata
-#
-# example use - initialize the CaliforniaHousing dataset, write it to a local folder, and then read it into a new TabularDataset object:
-#
-# >>> from tabzilla_prepare_data import CaliforniaHousing, TabularDataset
-# >>> from pathlib import Path
-# >>> c = CaliforniaHousing()
-# >>> c.name
-# 'CaliforniaHousing'
-# >>> p = Path("temp/cal-housing").resolve()
-# >>> c.write(p)
-# >>> c2 = TabularDataset.read(p)
-# >>> c2.name
-# 'CaliforniaHousing'
-
-
 import gzip
 import json
 from pathlib import Path
@@ -260,14 +238,17 @@ class CoresetSampler:
 
 class SubsetMaker(object):
     def __init__(
-        self, subset_features, subset_rows, subset_features_method, subset_rows_method
+        self, subset_features, subset_rows, subset_features_method, subset_rows_method,ens_random_subsets=False,ens_random_factor=0.5
     ):
         self.subset_features = subset_features
         self.subset_rows = subset_rows
         self.subset_features_method = subset_features_method
         self.subset_rows_method = subset_rows_method
+        self.ens_random_subsets = ens_random_subsets
+        self.ens_random_factor = ens_random_factor
         self.row_selector = None
         self.feature_selector = None
+
 
     def random_subset(self, X, y, action=[]):
         if "rows" in action:
@@ -384,9 +365,21 @@ class SubsetMaker(object):
         :param subset_rows_method: method to use for selecting rows
         :return: subset of X, y
         """
+        # print('setting numpy seed to', seed)
+        # np.random.seed(seed)
 
         
         if X.shape[1] > self.subset_features > 0:
+
+            if self.ens_random_subsets:
+                if split == "train":
+                    subset_size = int(self.ens_random_factor * X.shape[1])
+                    self.random_subset_indices = np.random.choice(X.shape[1], size=subset_size, replace=False)
+                    
+                X_random_subset = X[:, self.random_subset_indices]
+                print("X_random_subset",X_random_subset.shape)
+                X = X_random_subset
+
             print(
                 f"making {self.subset_features}-sized subset of {X.shape[1]} features ..."
             )
@@ -526,15 +519,14 @@ def process_data(
             args.subset_features < args.num_features or args.subset_rows < len(X_train)
         )
     ):
-        print(
-            f"making subset with {args.subset_features} features and {args.subset_rows} rows..."
-        )
         if getattr(dataset, "ssm", None) is None:
             dataset.ssm = SubsetMaker(
                 args.subset_features,
                 args.subset_rows,
                 args.subset_features_method,
                 args.subset_rows_method,
+                ens_random_subsets=args.ens_random_subsets,
+                ens_random_factor=args.ens_random_factor
             )
         X_train, y_train = dataset.ssm.make_subset(
             X_train,
@@ -555,8 +547,6 @@ def process_data(
                 split="test",
                 seed=args.rand_seed,
             )
-        print("subset created")
-
     return {
         "data_train": (X_train, y_train),
         "data_val": (X_val, y_val),

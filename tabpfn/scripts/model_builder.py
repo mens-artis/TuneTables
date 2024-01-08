@@ -225,7 +225,7 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
     extra_kwargs = {}
     verbose_train, verbose_prior = verbose >= 1, verbose >= 2
     config['verbose'] = verbose_prior
-
+    n_features = config['max_features']
     if config['boosting']:
         config['aggregate_k_gradients'] = 1
     elif 'aggregate_k_gradients' not in config or config['aggregate_k_gradients'] is None:
@@ -328,30 +328,6 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
     config['eval_positions'] = [int(config['bptt'] * 0.95)] if config['bptt_extra_samples'] is None else [int(config['bptt'])]
 
     epochs = 0 if not should_train else config['epochs']
-    #print('MODEL BUILDER', model_proto, extra_kwargs['get_batch'])
-    epkd = {
-                        'prior_type': config['prior_type']
-                        , 'num_features': config['num_features']
-                        , 'split': config['split']
-                        , 'hyperparameters': prior_hyperparameters
-                        , 'num_eval_fitting_samples': config.get('num_eval_fitting_samples', 1000)
-                        #, 'dynamic_batch_size': 1 if ('num_global_att_tokens' in config and config['num_global_att_tokens']) else 2
-                        , 'batch_size_per_gp_sample': config.get('batch_size_per_gp_sample', None)
-                        , 'prompt_tuning': config.get('prompt_tuning', False)
-                        , 'tuned_prompt_size': config.get('tuned_prompt_size', 0)
-                        , 'model_string': config.get('model_string', '')
-                        , 'save_path': config.get('base_path', '.')
-                        , 'rand_seed': config.get('rand_seed', 135798642)
-                        , 'average_ensemble': config.get('average_ensemble', False)
-                        , 'permute_feature_position_in_ensemble': config.get('permute_feature_position_in_ensemble', False)
-                        , 'bagging': config.get('bagging', False)
-                        , 'tuned_prompt_label_balance': config.get('tuned_prompt_label_balance', 'equal')
-                        , 'ens_random_feature_rotation': config.get('ens_random_feature_rotation', False)
-                        , 'zs_eval_ensemble': config.get('zs_eval_ensemble', 0)
-                        , 'pad_features': config.get('pad_features', False)
-                        , **extra_kwargs
-    }
-    print("Extra prior kwargs dict:", epkd)
 
     args = argparse.Namespace(**config)
 
@@ -379,7 +355,10 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
             X_train, y_train = processed_data["data_train"]
             X_val, y_val = processed_data["data_val"]
             X_test, y_test = processed_data["data_test"]
-            epkd['num_classes'] = len(set(y_train))
+            n_features = X_train.shape[1]
+            n_samples = X_train.shape[0]
+            if config['bptt'] > n_samples:
+                print("WARNING: bptt is larger than the number of samples in the dataset. This may cause unexpected behavior.")
             dataloader = [[X_train, y_train], [X_val, y_val], [X_test, y_test]]
             dataset_built = True
             break
@@ -387,7 +366,35 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
             raise Exception(f"Split {config['split']} not found in dataset!")
     else:
         dataloader = model_proto.DataLoader
-    if not config['boosting']:
+
+    epkd = {
+                        'prior_type': config['prior_type']
+                        , 'num_features': n_features
+                        , 'split': config['split']
+                        , 'hyperparameters': prior_hyperparameters
+                        , 'num_eval_fitting_samples': config.get('num_eval_fitting_samples', 1000)
+                        #, 'dynamic_batch_size': 1 if ('num_global_att_tokens' in config and config['num_global_att_tokens']) else 2
+                        , 'batch_size_per_gp_sample': config.get('batch_size_per_gp_sample', None)
+                        , 'prompt_tuning': config.get('prompt_tuning', False)
+                        , 'tuned_prompt_size': config.get('tuned_prompt_size', 0)
+                        , 'model_string': config.get('model_string', '')
+                        , 'save_path': config.get('base_path', '.')
+                        , 'rand_seed': config.get('rand_seed', 135798642)
+                        , 'average_ensemble': config.get('average_ensemble', False)
+                        , 'permute_feature_position_in_ensemble': config.get('permute_feature_position_in_ensemble', False)
+                        , 'bagging': config.get('bagging', False)
+                        , 'tuned_prompt_label_balance': config.get('tuned_prompt_label_balance', 'equal')
+                        , 'ens_random_feature_rotation': config.get('ens_random_feature_rotation', False)
+                        , 'zs_eval_ensemble': config.get('zs_eval_ensemble', 0)
+                        , 'pad_features': config.get('pad_features', False)
+                        , 'early_stopping_patience': config.get('early_stopping_patience', 2)
+                        , 'num_classes' : len(set(y_train))
+                        , 'min_batches_per_epoch': config.get('min_batches_per_epoch', 10)
+                        , 'keep_topk_ensemble': config.get('keep_topk_ensemble', 0)
+                        , 'wandb_log': config.get('wandb_log', False)
+                        , **extra_kwargs
+    }
+    if not config['boosting'] or config.get('uniform_bptt', True):
         sep_samp = get_uniform_single_eval_pos_sampler(config.get('max_eval_pos', config['bptt']), min_len=config.get('min_eval_pos', 0))
     else:
         sep_samp = get_fixed_batch_sampler(config.get('max_eval_pos', config['bptt']))

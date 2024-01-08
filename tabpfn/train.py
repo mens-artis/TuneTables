@@ -7,6 +7,7 @@ import yaml
 import json
 from contextlib import nullcontext
 import copy
+import warnings
 
 import torch
 from torch import nn
@@ -31,6 +32,13 @@ import numpy as np
 import wandb
 import uncertainty_metrics.numpy as um
 
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    log_loss,
+    roc_auc_score,
+)
+
 class Losses():
     gaussian = nn.GaussianNLLLoss(full=True, reduction='none')
     mse = nn.MSELoss(reduction='none')
@@ -52,7 +60,10 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
     print(f'Using {device} device')
     using_dist, rank, device = init_dist(device)
 
-    num_features = extra_prior_kwargs_dict.get('num_features', 100)
+    if extra_prior_kwargs_dict.get('pad_features', None):
+        num_features = 100
+    else:
+        num_features = extra_prior_kwargs_dict.get('num_features', 100)
 
     if extra_prior_kwargs_dict.get('prior_type') == 'real':
         real_prior = True
@@ -86,11 +97,11 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                                 )
         val_ds = TabDS(X_val, y_val, num_features=num_features, pad_features=extra_prior_kwargs_dict.get("pad_features", True), aggregate_k_gradients=1)
         val_dl = DataLoader(
-            val_ds, batch_size=32, shuffle=False, num_workers=1,
+            val_ds, batch_size=min(32, y_val.shape[0]), shuffle=False, num_workers=1,
         )
         test_ds = TabDS(X_test, y_test, num_features=num_features, pad_features=extra_prior_kwargs_dict.get("pad_features", True), aggregate_k_gradients=1)
         test_dl = DataLoader(
-            test_ds, batch_size=32, shuffle=False, num_workers=1,
+            test_ds, batch_size=min(32, y_test.shape[0]), shuffle=False, num_workers=1,
         )
         return dl, val_dl, test_dl, bptt
 
@@ -99,8 +110,8 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         X, y = priordataloader_class[0][0], priordataloader_class[0][1]
         X_val, y_val = priordataloader_class[1][0], priordataloader_class[1][1]
         X_test, y_test = priordataloader_class[2][0], priordataloader_class[2][1]
-
         num_classes = len(np.unique(y))
+        data_for_fitting = None
         if do_prompt_tuning and extra_prior_kwargs_dict.get('tuned_prompt_label_balance', 'equal') == 'proportional':
             label_weights = np.bincount(y) / len(y)
             label_weights = torch.from_numpy(label_weights).float().to(device)
@@ -114,46 +125,58 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         idx = np.random.permutation(len(X_test))
         X_test, y_test = X_test[idx], y_test[idx]
 
+        #make dataloaders
+        dl, val_dl, test_dl, bptt = make_dataloaders(bptt=bptt)
+
+        # Fix the prior data TabPFN will use for fitting when including real data points
+        for _, (td, _, _) in enumerate(dl):
+            data_for_fitting = td
+            break
+
         if extra_prior_kwargs_dict.get('zs_eval_ensemble', 0) > 0:
 
             def tpc_data_eval(cl=1000, X=None, y=None, X_val=None, y_val=None, ens_size=1):
                     from scripts.transformer_prediction_interface import TabPFNClassifier
-                    print("Evaluating on real data")
-
+                    results = dict()
+                    if cl > len(X):
+                        cl = len(X) - 1
                     eval_model = TabPFNClassifier(device='cuda', 
                                                 N_ensemble_configurations=ens_size, 
                                                 base_path="/home/benfeuer/TabPFN-pt/tabpfn", 
-                                                # model_string=extra_prior_kwargs_dict.get('model_string'), 
-                                                # feature_shift_decoder=True,
-                                                # no_preprocess_mode=True,
-                                                # batch_size_inference=10, 
-                                                # multiclass_decoder="permutation",
-                                                # n_classes=num_classes,
-                                                # prefix_size=prefix_size,
                                                 )
                     eval_model.fit(X[:cl, ...], y[:cl, ...], overwrite_warning=True)
-                    preds = eval_model.predict(X_val)
-                    correct = np.sum(preds == y_val)
-                    total = len(y_val)
-                    tpc_acc = np.round(correct / total, 3)
-                    print("Zero shot TabPFN accuracy: ", tpc_acc)
-                    return tpc_acc
-            
-            print("Val score")
-            val_score = tpc_data_eval(cl=1000, X=X, y=y, X_val=X_val, y_val=y_val, ens_size=extra_prior_kwargs_dict.get('zs_eval_ensemble', 0))
-            print("Test score")
-            test_score = tpc_data_eval(cl=1000, X=X, y=y, X_val=X_test, y_val=y_test, ens_size=extra_prior_kwargs_dict.get('zs_eval_ensemble', 0))
+                    predictions = eval_model.predict(X_val)
+                    outputs = eval_model.predict_proba(X_val)
+                    targets = y_val
+                    warnings.filterwarnings("ignore")
+                    results['Accuracy'] = np.round(accuracy_score(targets, predictions), 3).item()
+                    results['Log_Loss'] = np.round(log_loss(targets, outputs, labels=np.arange(num_classes)), 3).item()
+                    results['F1_Weighted'] = np.round(f1_score(targets, predictions, average='weighted'), 3).item()
+                    results['F1_Macro'] = np.round(f1_score(targets, predictions, average='macro'), 3).item()
+                    try:
+                        results['ROC_AUC'] = np.round(roc_auc_score(targets, predictions, labels=np.arange(num_classes), multi_class='ovr'), 3).item()
+                    except Exception as e:
+                        print("Error calculating ROC AUC: ", e)
+                        results['ROC_AUC'] = 0.0
+                    results['ECE'] = np.round(um.ece(targets, outputs, num_bins=30), 3).item()
+                    results['TACE'] = np.round(um.tace(targets, outputs, num_bins=30), 3).item()
+                    warnings.filterwarnings("default")
+                    return results
+            res_dict = dict()
+            val_results = tpc_data_eval(cl=bptt, X=data_for_fitting[0], y=data_for_fitting[1], X_val=X_val, y_val=y_val, ens_size=extra_prior_kwargs_dict.get('zs_eval_ensemble', 0))
+            res_dict = dict(res_dict, **{"Val_" + k : v for k, v in val_results.items()})
+            test_results = tpc_data_eval(cl=bptt, X=data_for_fitting[0], y=data_for_fitting[1], X_val=X_test, y_val=y_test, ens_size=extra_prior_kwargs_dict.get('zs_eval_ensemble', 0))
+            res_dict = dict(res_dict, **{"Test_" + k : v for k, v in test_results.items()})
             with open(os.path.join(extra_prior_kwargs_dict.get('save_path'), 'zs_eval_ensemble.json'), 'w') as f:
-                json.dump({"val_acc": val_score, "test_acc": test_score}, f)
+                json.dump(res_dict, f)
+            if extra_prior_kwargs_dict.get('wandb_log', False):
+                import wandb
+                wandb.log(res_dict, step=1, commit=True)
             exit(0)
 
-        #make dataloaders
-
-        dl, val_dl, test_dl, bptt = make_dataloaders(bptt=bptt)
     else:
         dl = priordataloader_class(num_steps=steps_per_epoch, batch_size=batch_size, eval_pos_seq_len_sampler=eval_pos_seq_len_sampler, seq_len_maximum=bptt+(bptt_extra_samples if bptt_extra_samples else 0), device=device, **extra_prior_kwargs_dict)
         num_features = dl.num_features
-
     encoder = encoder_generator(num_features, emsize)
     #style_def = dl.get_test_batch()[0][0] # the style in batch of the form ((style, x, y), target, single_eval_pos)
     style_def = None
@@ -165,17 +188,22 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         n_out = criterion.weight.shape[0]
     else:
         n_out = 1
-
     model = TransformerModel(encoder, n_out, emsize, nhead, nhid, nlayers, dropout, style_encoder=style_encoder,
                              y_encoder=y_encoder_generator(1, emsize), input_normalization=input_normalization,
                              pos_encoder=(pos_encoder_generator or positional_encodings.NoPositionalEncoding)(emsize, bptt*2),
                              decoder=decoder, init_method=initializer, efficient_eval_masking=efficient_eval_masking, prefix_size=prefix_size,
-                             n_classes=num_classes, prefix_label_probs=label_weights, **model_extra_args
+                             n_classes=num_classes, prefix_label_probs=label_weights, num_features=extra_prior_kwargs_dict.get("num_features", 100), **model_extra_args
                              )
-    model.criterion = criterion
+    model.criterion = criterion    
     if load_weights_from_this_state_dict is not None:
         if load_weights_from_this_state_dict.get('prefix_embedding.weight', None) is None and model.state_dict().get('prefix_embedding.weight', None) is not None:
             load_weights_from_this_state_dict['prefix_embedding.weight'] = model.state_dict()['prefix_embedding.weight']
+        if load_weights_from_this_state_dict.get('encoder.weight', None) is not None:
+            load_shape = load_weights_from_this_state_dict.get('encoder.weight', None).shape
+            model_shape = model.state_dict().get('encoder.weight', None).shape
+            if load_shape != model_shape:
+                print("Encoder weight shape mismatch: ", load_shape, model_shape, "Using randomly initialized encoder weights from model instead")
+                load_weights_from_this_state_dict['encoder.weight'] = model.state_dict()['encoder.weight']
         model.load_state_dict(load_weights_from_this_state_dict)
     if initialize_with_model is not None:
         model.init_from_small_model(initialize_with_model)
@@ -209,37 +237,56 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
     utils.check_compatibility(dl)
 
     eval_model = None
+
+    master_epoch_count = []
     
-    def real_data_eval(r_model, cl=1000, val_dl=None):
-        train_data, _, _ = next(iter(dl))
-        train_data[0] = train_data[0][:cl, ...]
-        train_data[1] = train_data[1][:cl, ...]
-        single_eval_pos = len(train_data[0])
+    def real_data_eval(r_model, cl=1000, train_data=None, val_dl=None):
+        import copy
+        td = copy.deepcopy(train_data)
+        td[0] = td[0][:cl, ...]
+        td[1] = td[1][:cl, ...]
+        single_eval_pos = len(td[0])
         with torch.no_grad():
-            correct = 0
-            total = len(val_dl.dataset)
+            # correct = 0
+            # total = len(val_dl.dataset)
             prediction_list = []
             target_list = []
             output_list = []
             for batch, (data, targets, _) in enumerate(val_dl):
-                batch_data = tuple([torch.cat((train_data[0], data[0]), dim=0), torch.cat((train_data[1], data[1]), dim=0)])
+                batch_data = tuple([torch.cat((td[0], data[0]), dim=0), torch.cat((td[1], data[1]), dim=0)])
                 output = r_model(tuple(e.to(device) if torch.is_tensor(e) else e for e in batch_data) if isinstance(batch_data, tuple) else batch_data.to(device)
                     , single_eval_pos=single_eval_pos)
+                invalid_labels = torch.arange(num_classes, 10).to(device)
+                output[:, invalid_labels] = float("-inf")
                 output_list.append(output)
                 _, predicted = torch.max(output.cpu().data, 1)
                 prediction_list.append(predicted)
                 target_list.append(targets)
-            outputs = torch.cat(output_list, dim=0)
-            predictions = torch.cat(prediction_list, dim=0)
-            targets = torch.cat(target_list, dim=0)
-            correct += (predictions == targets).sum().item()
-        raw_model_acc = np.round(correct / total, 3)
-        return raw_model_acc, outputs.cpu(), targets.cpu()
+            outputs = torch.cat(output_list, dim=0)[:, :num_classes].cpu().numpy()
+            predictions = torch.cat(prediction_list, dim=0).cpu().numpy()
+            targets = torch.cat(target_list, dim=0).cpu().numpy()
+            # assert len(outputs) == len(predictions) == total, "Samples missing from eval: found {}, expected {}".format(len(outputs), total)
+            # correct += (predictions == targets).sum().item()
+
+        results = dict()
+        warnings.filterwarnings("ignore")
+        results['Accuracy'] = np.round(accuracy_score(targets, predictions), 3).item()
+        results['Log_Loss'] = np.round(log_loss(targets, outputs, labels=np.arange(num_classes)), 3).item()
+        results['F1_Weighted'] = np.round(f1_score(targets, predictions, average='weighted'), 3).item()
+        results['F1_Macro'] = np.round(f1_score(targets, predictions, average='macro'), 3).item()
+        try:
+            results['ROC_AUC'] = np.round(roc_auc_score(targets, predictions, labels=np.arange(num_classes), multi_class='ovr'), 3).item()
+        except Exception as e:
+            print("Error calculating ROC AUC: ", e)
+            results['ROC_AUC'] = 0.0
+        results['ECE'] = np.round(um.ece(targets, outputs, num_bins=30), 3).item()
+        results['TACE'] = np.round(um.tace(targets, outputs, num_bins=30), 3).item()
+        warnings.filterwarnings("default")
+
+        return results, outputs, targets
     
     def train_epoch(model, optimizer, boost_this_epoch=False):
         model.train()  # Turn on the train mode
-        if do_prompt_tuning:
-            model.freeze_parameters_except_prefix()
         total_loss = 0.
         total_positional_losses = 0.
         total_positional_losses_recorded = 0
@@ -249,11 +296,9 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         forward_time = 0
         step_time = 0
         before_get_batch = time.time()
+        batches_seen = 0
         assert len(dl) % aggregate_k_gradients == 0, 'Please set the number of steps per epoch s.t. `aggregate_k_gradients` divides it.'
-        # print("Training Dataset size: ", len(dl.dataset))
-        # print(next(iter(dl)))
         for batch, (data, targets, single_eval_pos) in enumerate(dl):
-            # print('starting batch', batch, 'of', len(dl))
             if isinstance(data, list):
                 data = tuple(data)
             if isinstance(single_eval_pos, torch.Tensor) and single_eval_pos.numel() == 0:
@@ -369,7 +414,11 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                 nan_steps += nan_share
                 ignore_steps += (targets == -100).float().mean()
             before_get_batch = time.time()
+            batches_seen += 1
         #Total positional losses is a torch tensor of size bptt (batch size)
+        if batches_seen < extra_prior_kwargs_dict.get('min_batches_per_epoch', 1):
+            raise ValueError("Not enough batches seen in epoch: saw {} batches, expected at least {}".format(batches_seen, extra_prior_kwargs_dict.get('min_batches_per_epoch', 1)))
+
         if boosting:
             total_positional_losses = torch.zeros(bptt)
             total_positional_losses_recorded = torch.ones(bptt)
@@ -387,7 +436,6 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         device = ec.model.prefix_embedding.weight.device
         if method == "duplicate":
             ec.concatenated_embedding = torch.cat([ec.original_embedding, ec.original_embedding], dim=0).to(device)
-            print("concatenated embedding shape: {}".format(ec.concatenated_embedding.shape))
             ec.concatenated_y_embedding = torch.cat([ec.original_y_embedding, ec.original_y_embedding], dim=0).to(device)
             ec.prefix_size = ec.original_prefix_size * 2
         elif method.startswith("rand-init"):
@@ -447,7 +495,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         print("******** prefix_weights ********",prefix_weights.shape)
         if do_concat:
             prefix_weights_l.append({"prefix_weights": torch.from_numpy(prefix_weights).float(), "prefix_y_labels": torch.from_numpy(prefix_y_labels)})
-            print("Prefix weights list length: ", len(prefix_weights_l))
+            # print("Prefix weights list length: ", len(prefix_weights_l))
         return prefix_weights_l
 
     def update_ensemble_acc(boosting_acc, boosting_acc_nc):
@@ -460,71 +508,111 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
             nc_ece = 0
             nc_tace = 0
         new_res = {
-            "val_acc": boosting_acc,
-            "val_acc_nc": boosting_acc_nc,
-            "val_ece": ece,
-            "val_tace": tace,
-            "val_ece_nc": nc_ece,
-            "val_tace_nc": nc_tace,
+            "Ens_Val_Accuracy": boosting_acc,
+            "Ens_Val_Accuracy_NC": boosting_acc_nc,
+            "Ens_Val_ECE": ece,
+            "Ens_Val_TACE": tace,
+            "Ens_Val_ECE_NC": nc_ece,
+            "Ens_Val_TACE_NC": nc_tace,
         }
         return new_res
 
-    def train_test_loop(t_model, t_optim):
+    def train_test_loop(t_model, t_optim):        
+        # Select a fixed training data prior of size bptt
         return_outputs = None
         return_targets = None
         res_dict = None
+        best_val_score = 0
+        if do_prompt_tuning:
+            best_val_embed = t_model.prefix_embedding.weight.detach().cpu()
+        best_res_dict = None
+        best_outputs = None
+        best_targets = None
+        is_best = False
+        patience = 0
+
+        # Confirm that parameters except for the prefix are frozen if we are prompt tuning
+        if do_prompt_tuning:
+            t_model.freeze_parameters_except_prefix()
+            for n, p in t_model.named_parameters():
+                if "prefix_embedding" not in n:
+                    assert not p.requires_grad, "Non-prefix parameter {} requires grad!".format(n)
+
         for epoch in (range(1, epochs + 1) if epochs is not None else itertools.count(1)):
+            is_best = False
             print('epoch', epoch, 'of', epochs)
             boost_this_epoch = True if epoch == 1 else False
             epoch_start_time = time.time()
+            master_epoch_count.append(1)
             total_loss, total_positional_losses, time_to_get_batch, forward_time, step_time, nan_share, ignore_share =\
                 train_epoch(t_model, t_optim, boost_this_epoch)
             val_score = val_score_nc = val_score_concat = val_score_nc_concat = test_score = test_score_nc = test_ece = test_tace = val_ece = val_tace = val_ece_nc = val_tace_nc = test_ece_nc = test_tace_nc = None
+            res_dict = dict()
             if real_prior \
                 and (epoch - 1) % validation_period == 0:
-                val_score, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=bptt, val_dl=val_dl)
-                np_outputs = val_outputs.cpu().numpy().astype(np.float32)
-                np_targets = val_targets.cpu().numpy().astype(np.int32)
-                val_ece = np.round(um.ece(np_targets, np_outputs, num_bins=30), 3)
-                val_tace = np.round(um.tace(np_targets, np_outputs, num_bins=30), 3)
-                test_score, test_outputs, test_targets = real_data_eval(r_model=t_model, cl=bptt, val_dl=test_dl)
-                np_outputs_t = test_outputs.cpu().numpy().astype(np.float32)
-                np_targets_t = test_targets.cpu().numpy().astype(np.int32)
-                test_ece = np.round(um.ece(np_targets_t, np_outputs_t, num_bins=30), 3)
-                test_tace = np.round(um.tace(np_targets_t, np_outputs_t, num_bins=30), 3)
-                return_outputs = [np_outputs]
-                return_targets = [np_targets]
+                val_results, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=bptt, train_data=data_for_fitting, val_dl=val_dl)
+                res_dict = dict(res_dict, **{"Val_" + k : v for k, v in val_results.items()})
+                val_score = res_dict["Val_Accuracy"]
+                # val_score2, val_outputs2, val_targets2 = real_data_eval(r_model=t_model, cl=bptt, train_data=data_for_fitting, val_dl=val_dl)
+                # if val_score != val_score2:
+                #     print("Val score mismatch: ", val_score, val_score2)
+                #     raise ValueError("Val score mismatch")
+                if val_score and val_score > best_val_score:
+                    #print("Train data:", data_for_fitting)
+                    patience = 0
+                    best_val_score = val_score
+                    is_best = True
+                    if do_prompt_tuning:
+                        best_val_embed = t_model.prefix_embedding.weight.detach().cpu()
+                else:
+                    patience += 1
+                test_results, test_outputs, test_targets = real_data_eval(r_model=t_model, cl=bptt, train_data=data_for_fitting, val_dl=test_dl)
+                res_dict = dict(res_dict, **{"Test_" + k : v for k, v in test_results.items()})
+                return_outputs = [val_outputs]
+                return_targets = [val_targets]
                 if do_prompt_tuning:
                     #TODO: will this work with context length 0? Should this be a hyperparameter?
                     if do_concat != "":
                         ec = EmbeddingConcatenator(t_model, do_concat, prefix_weights_l)
                         t_model = concat_embedding(ec, t_model, do_concat)
-                        val_score_concat, _, _ = real_data_eval(r_model=ec.get_model(), cl=bptt, val_dl=val_dl)
-                        val_score_nc_concat, _, _ = real_data_eval(r_model=ec.get_model(), cl=0, val_dl=val_dl)
+                        val_score_concat, _, _ = real_data_eval(r_model=ec.get_model(), cl=bptt, train_data=data_for_fitting, val_dl=val_dl)
+                        res_dict = dict(res_dict, **{"Val_concat_" + k : v for k, v in val_score_concat.items()})
+                        val_score_nc_concat, _, _ = real_data_eval(r_model=ec.get_model(), cl=0, train_data=data_for_fitting, val_dl=val_dl)
+                        res_dict = dict(res_dict, **{"Val_concat_nc_" + k : v for k, v in val_score_nc_concat.items()})
                         t_model = restore_embedding(ec, t_model)
                         # Update optimizer parameters to include new embedding
                         t_optim = torch.optim.AdamW(t_model.parameters(), lr=lr, weight_decay=weight_decay)
                     else:
                         val_score_nc_concat = ""
                         val_score_concat = ""
-                    val_score_nc, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=0, val_dl=val_dl)
-                    test_score_nc, test_outputs, test_targets = real_data_eval(r_model=t_model, cl=0, val_dl=test_dl)
-                    np_outputs_nc = val_outputs.cpu().numpy().astype(np.float32)
-                    np_targets_nc = val_targets.cpu().numpy().astype(np.int32)
-                    return_outputs.append(np_outputs_nc)
-                    return_targets.append(np_targets_nc)
-                    val_ece_nc = np.round(um.ece(np_targets_nc, np_outputs_nc, num_bins=30), 3)
-                    val_tace_nc = np.round(um.tace(np_targets_nc, np_outputs_nc, num_bins=30), 3)
-                    np_outputs_nc_t = test_outputs.cpu().numpy().astype(np.float32)
-                    np_targets_nc_t = test_targets.cpu().numpy().astype(np.int32)
-                    test_ece_nc = np.round(um.ece(np_targets_nc_t, np_outputs_nc_t, num_bins=30), 3)
-                    test_tace_nc = np.round(um.tace(np_targets_nc_t, np_outputs_nc_t, num_bins=30), 3)
+                    val_score_nc, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=0, train_data=data_for_fitting, val_dl=val_dl)
+                    return_outputs.append(val_outputs)
+                    return_targets.append(val_targets)
+                    res_dict = dict(res_dict, **{"Val_nc_" + k : v for k, v in val_score_nc.items()})
+                    test_score_nc, test_outputs, test_targets = real_data_eval(r_model=t_model, cl=0, train_data=data_for_fitting, val_dl=test_dl)
+                    res_dict = dict(res_dict, **{"Test_nc_" + k : v for k, v in test_score_nc.items()})
 
 
+
+                    # val_score_nc, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=0, val_dl=val_dl)
+                    # test_score_nc, test_outputs, test_targets = real_data_eval(r_model=t_model, cl=0, val_dl=test_dl)
+                    # np_outputs_nc = val_outputs.cpu().numpy().astype(np.float32)
+                    # np_targets_nc = val_targets.cpu().numpy().astype(np.int32)
+                    # return_outputs.append(np_outputs_nc)
+                    # return_targets.append(np_targets_nc)
+                    # val_ece_nc = np.round(um.ece(np_targets_nc, np_outputs_nc, num_bins=30), 3)
+                    # val_tace_nc = np.round(um.tace(np_targets_nc, np_outputs_nc, num_bins=30), 3)
+                    # np_outputs_nc_t = test_outputs.cpu().numpy().astype(np.float32)
+                    # np_targets_nc_t = test_targets.cpu().numpy().astype(np.int32)
+                    # test_ece_nc = np.round(um.ece(np_targets_nc_t, np_outputs_nc_t, num_bins=30), 3)
+                    # test_tace_nc = np.round(um.tace(np_targets_nc_t, np_outputs_nc_t, num_bins=30), 3)
 
             elif hasattr(dl, 'validate') and epoch % validation_period == 0:
                 with torch.no_grad():
                     val_score = dl.validate(model)
+            if patience > extra_prior_kwargs_dict.get('early_stopping_patience', 2):
+                print("Early stopping after {} epochs".format(epoch))
+                break
 
             if verbose:
                 get_time = (time.time() - epoch_start_time)
@@ -536,55 +624,34 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                     f' | forward time {forward_time:5.2f}' 
                     f' | nan share {nan_share:5.2f} | ignore share (for classification tasks) {ignore_share:5.4f}'
                     + (f' | val score {val_score}' if val_score is not None else '')
-                    + (f' | val score nc {val_score_nc}' if val_score_nc is not None else '')
-                    + (f' | test score {test_score}' if test_score is not None else '')
-                    + (f' | test score nc {test_score_nc}' if test_score_nc is not None else '')
-                    + (f' | val ece {val_ece}' if val_score is not None else '')
-                    + (f' | val tace {val_tace}' if val_score is not None else '')
-                    + (f' | test ece {test_ece}' if test_score is not None else '')
-                    + (f' | test tace {test_tace}' if test_score is not None else '')
-                    + (f' | val ece nc {val_ece_nc}' if val_score_nc is not None else '')
-                    + (f' | val tace nc {val_tace_nc}' if val_score_nc is not None else '')
-                    + (f' | test ece nc {test_ece_nc}' if test_score_nc is not None else '')
-                    + (f' | test tace nc {test_tace_nc}' if test_score_nc is not None else '')
-                    + (f' | val score concat {val_score_concat}' if val_score_concat is not None else '')
-                    + (f' | val score nc concat {val_score_nc_concat}' if val_score_nc_concat is not None else '')
                 )
 
 
 
 
                 print('-' * 89)
+                if epoch_callback is not None and rank == 0:
+                    # print("Calling epoch callback")
+                    # print("res dict is now")
+                    # print(res_dict)
+                    epoch_callback(model, epoch / epochs, res_dict)
                 if val_score is not None:
                     # save the log to a json file
-                    res_dict = {'time' : get_time, 
+                    res_dict = dict(res_dict, **{'time' : get_time, 
                                 'epoch': epoch, 
-                                'mean_loss' : total_loss, 
-                                'val_score': val_score, 
-                                'val_score_nc' : val_score_nc, 
-                                "test_score" : test_score, 
-                                "test_score_nc" : test_score_nc, 
-                                "val_ece" : val_ece, 
-                                "val_tace" : val_tace,
-                                "test_ece" : test_ece,
-                                "test_tace" : test_tace,
-                                "val_ece_nc" : val_ece_nc,
-                                "val_tace_nc" : val_tace_nc,
-                                "test_ece_nc" : test_ece_nc,
-                                "test_tace_nc" : test_tace_nc,
-                                "val_score_concat" : val_score_concat,
-                                "val_score_nc_concat" : val_score_nc_concat,
-                                }
+                    })
+                    if extra_prior_kwargs_dict.get('wandb_log', False):
+                        import wandb
+                        wandb.log(res_dict, step=len(master_epoch_count), commit=True)
+                    if is_best:
+                        best_res_dict = res_dict
+                        best_outputs = return_outputs
+                        best_targets = return_targets
                     mstr = extra_prior_kwargs_dict.get('model_string')
                     boost_iter = f"ensemble_iter_{cur_boost_iter}" if is_ensemble else ""
                     log_path = os.path.join(extra_prior_kwargs_dict.get('save_path'), f'{mstr}_{boost_iter}_log_{epoch}.json')
-                    print("Saving log to json file, path is: ", log_path)
                     with open(log_path, 'w') as f:
                         json.dump(res_dict, f, indent=4)
-            
-            # todo: res_dict only changes once every 10 epochs?
-            if epoch_callback is not None and rank == 0:
-                epoch_callback(model, epoch / epochs, res_dict)
 
             # stepping with wallclock time based scheduler
             scheduler.step()
@@ -607,7 +674,13 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                         "val_score_nc_concat_final": val_score_nc_concat,
                     })
 
-        return return_outputs, return_targets, res_dict
+        if do_prompt_tuning and isinstance(best_val_embed, torch.Tensor):
+            t_model.prefix_embedding.weight = nn.Parameter(best_val_embed.to(device))
+            v_scr, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=bptt, train_data=data_for_fitting, val_dl=val_dl)
+            if v_scr['Accuracy'] != best_res_dict['Val_Accuracy']:
+                print("Best embedding score {} does not match best score {}!".format(v_scr, best_res_dict['Val_Accuracy']))
+
+        return best_outputs, best_targets, best_res_dict
 
     # main training loop
     bagging = extra_prior_kwargs_dict.get("bagging", False)
@@ -628,6 +701,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
     output_dict = {}
     i = 0
     ensembling_acc = dict()
+    res_dict_ensemble = dict()
     try:
         print("Starting training loop \n \n")
         if bagging:
@@ -641,6 +715,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         prior_grad_dict = None
         gradient_dict = {}
         output_dict[i], test_targets, results_dict = train_test_loop(model, optimizer)
+        res_dict_ensemble[i] = results_dict
         prior_grad_dict = gradient_dict
         # probs np and labels np are used by update_ensemble_acc for ECE and TACE
         probs_np = output_dict[0][0]
@@ -649,10 +724,14 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
             probs_np_nc = output_dict[0][1]
             labels_np_nc = test_targets[1]
         if is_ensemble:
-            ensembling_acc[i] = update_ensemble_acc(results_dict.get('val_score', 0), results_dict.get('val_score_nc', 0))
+            master_epoch_count.append(1)
+            ensembling_acc[i] = update_ensemble_acc(results_dict.get('Val_Accuracy', 0), results_dict.get('Val_nc_Accuracy', 0))
             if not do_concat:
                 with open(os.path.join(extra_prior_kwargs_dict.get('save_path'), 'ensembling_acc.json'), 'w') as f:
                     json.dump(ensembling_acc, f, indent=4)
+                if extra_prior_kwargs_dict.get('wandb_log', False):
+                    import wandb
+                    wandb.log(ensembling_acc[i], step=len(master_epoch_count), commit=True)
         if do_prompt_tuning:
             prefix_weights_l = save_prefix_weights(model, extra_prior_kwargs_dict.get('save_path'), i, do_concat, prefix_weights_l)
     except KeyboardInterrupt:
@@ -662,9 +741,10 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
     # boosting logic
     if is_ensemble:
         for i in range(1, boosting_n_iters):
+            master_epoch_count.append(1)
             seed_all(extra_prior_kwargs_dict.get('rand_seed') + i)
             if extra_prior_kwargs_dict.get('ens_random_feature_rotation', True):
-                print("Randomly rotating features")
+                # print("Randomly rotating features")
                 #shuffle features
                 idx = np.random.permutation(X.shape[1])
                 X, X_val, X_test = priordataloader_class[0][0][:, idx], priordataloader_class[1][0][:, idx], priordataloader_class[2][0][:, idx]
@@ -677,10 +757,15 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                 dl = DataLoader(
                     subset_dataset, batch_size=bptt, shuffle=True, num_workers=1, drop_last=True,
                 )
+            if extra_prior_kwargs_dict.get('ens_random_subsets', True):
+                dl, val_dl, test_dl, bptt = make_dataloaders()
+                
             cur_boost_iter = i
             print("Ensembling iteration: ", i+1, " of ", boosting_n_iters, "\n \n")
             model.init_prefix_weights()
             output_dict[i], test_targets, results_dict = train_test_loop(model, optimizer)
+            print("output_dict",output_dict.keys())
+            res_dict_ensemble[i] = results_dict
             if do_prompt_tuning:
                 prefix_weights_l = save_prefix_weights(model, extra_prior_kwargs_dict.get('save_path'), i, do_concat, prefix_weights_l)
             prior_grad_dict = gradient_dict
@@ -692,18 +777,30 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
             current_outs = dict()
             current_preds = dict()
             boosting_accs = dict()
+            topk_ens_val = extra_prior_kwargs_dict.get('keep_topk_ensemble', 0)
+            if topk_ens_val > 0:
+                print("keeping top {} of {} models".format(topk_ens_val, i+1))
+                #sort by val score
+                sorted_res = sorted(res_dict_ensemble.items(), key=lambda x: x[1]['Val_Accuracy'], reverse=True)
+                models_to_include = [x[0] for x in sorted_res][:topk_ens_val]
+            else:
+                models_to_include = list(range(i + 1))
             # Evaluate average model on all available benchmarks
             for m in range(len(output_dict[0])):
                 total = len(test_targets[m])
                 if extra_prior_kwargs_dict.get('average_ensemble'):
                         current_outs[m] = torch.zeros_like(torch.from_numpy(output_dict[0][m]))
                         for j in range(i + 1):
+                            if j not in models_to_include:
+                                continue
                             current_outs[m] += output_dict[j][m]
                         current_outs[m] /= (i + 1)
                 # Evaluate additive model
                 else:
                     current_outs[m] = output_dict[0][m]
                     for j in range(1, i + 1):
+                        if j not in models_to_include:
+                            continue
                         boost_res = torch.mul(boosting_lr, torch.from_numpy(output_dict[j][m]))
                         current_outs[m] += boost_res
                 _, current_preds[m] = torch.max(current_outs[m].cpu().data, 1)
@@ -717,7 +814,12 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                 labels_np_nc = test_targets[1]
             #TODO: This ignores nc results
             print("Ensembled val acc: ", boosting_accs[0])
-            if boosting_accs[0] <= ensembling_acc[i-1]["val_acc"]:
+            if extra_prior_kwargs_dict.get('wandb_log', False):
+                if i == (boosting_n_iters-1):
+                    import wandb
+                    wandb.log({"ensembled_val_acc": boosting_accs[0]}) #the ditcionary keys start from 0, while i starts from 1
+                            
+            if boosting_accs[0] <= ensembling_acc[i-1]["Ens_Val_Accuracy"]:
                 output_dict[i][0] = torch.zeros_like(torch.from_numpy(output_dict[i][0]))
                 ensembling_acc[i] = ensembling_acc[i-1]
             else:
@@ -727,6 +829,9 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
             # Save ensembled accuracy
             with open(os.path.join(extra_prior_kwargs_dict.get('save_path'), 'ensembling_acc.json'), 'w') as f:
                 json.dump(ensembling_acc, f, indent=4)
+            if extra_prior_kwargs_dict.get('wandb_log', False):
+                import wandb
+                wandb.log(ensembling_acc[i], step=len(master_epoch_count), commit=True)
 
     # break down training and return
     if rank == 0: # trivially true for non-parallel training
@@ -814,9 +919,6 @@ if __name__ == '__main__':
     max_y = args.__dict__.pop('max_y')
     min_y = args.__dict__.pop('min_y')
     # criterion = nn.MSELoss(reduction='none')
-
-    if args.num_features:
-        extra_prior_kwargs_dict["num_features"] = args.num_features
 
     if loss_function == 'ce':
         criterion = nn.CrossEntropyLoss(reduction='none')

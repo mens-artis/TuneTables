@@ -11,7 +11,7 @@ from torch.optim.lr_scheduler import LambdaLR
 import numpy as np
 
 def seed_all(seed = 0):
-    print('Setting random, numpy, torch seeds to', seed)
+    # print('Setting random, numpy, torch seeds to', seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     # torch.use_deterministic_algorithms(True, warn_only=True)

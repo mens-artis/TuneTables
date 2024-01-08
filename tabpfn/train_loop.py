@@ -111,6 +111,7 @@ def train_loop():
     parser.add_argument('--ensemble_random_feature_rotation', action='store_true', help='Whether to randomly rotate features in the ensemble.')
     parser.add_argument('--ens_random_subsets', action='store_true', help='Whether to apply random subsets to ensmbling.')
     parser.add_argument('--ens_random_factor', type=float, default=0.5, help='How large to take the random subsets to ensmbling.')
+    parser.add_argument('--reseed_data', action='store_true', help='Whether to randomly rotate features, labels and fitting data in the ensemble.')
     parser.add_argument('--aggregate_k_gradients', type=int, default=1, help='How many gradients to aggregate.')
     parser.add_argument('--average_ensemble', action='store_true', help='Whether to average the ensemble.')
     parser.add_argument('--permute_feature_position_in_ensemble', action='store_true', help='Whether to ensemble over feature position permutations.')
@@ -124,10 +125,12 @@ def train_loop():
     parser.add_argument('--wandb_entity', type=str, default='nyu-dice-lab', help='Entity for wandb logging.')
     parser.add_argument('--feature_subset_method', type=str, default='mutual_information', help='Method for feature subset selection ("mutual_information, random, first, pca").')
     parser.add_argument('--pad_features', action='store_true', help='Whether to pad features to the maximum number of features.')
+    parser.add_argument('--do_preprocess', action='store_true', help='Whether to add tabpfn-style preprocessing to the data.')
     parser.add_argument('--zs-eval-ensemble', type=int, default=0, help='Whether to do ensembled zero-shot evaluation.')
     parser.add_argument('--wandb_project_name', type=str, default="tabpfn", help='wandb project name')
     parser.add_argument('--min_batches_per_epoch', type=int, default=1, help='Minimum number of batches per epoch.')
     parser.add_argument('--keep_topk_ensemble', type=int, default=0, help='Whether to keep only the top-k ensemble members.')
+    parser.add_argument('--preprocess_type', type=str, default='none', help='Type of preprocessing to use (none, power_all, quantile_all, robust_all).')
     args = parser.parse_args()
 
     config, model_string = reload_config(longer=1)
@@ -144,6 +147,8 @@ def train_loop():
     config['uniform_bptt'] = args.uniform_bptt
     config['min_batches_per_epoch'] = args.min_batches_per_epoch
     config['keep_topk_ensemble'] = args.keep_topk_ensemble
+    config['do_preprocess'] = args.do_preprocess
+    config['preprocess_type'] = args.preprocess_type
 
     # concatenation
     config['concat_method'] = args.concat_method
@@ -211,7 +216,7 @@ def train_loop():
     config['max_eval_pos'] = 1000
 
     config['random_feature_rotation'] = False
-    config['ens_random_feature_rotation'] = args.ensemble_random_feature_rotation
+    config['reseed_data'] = args.reseed_data
     config['rotate_normalized_labels'] = False
 
     config['ens_random_subsets'] = args.ens_random_subsets

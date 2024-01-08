@@ -620,13 +620,14 @@ class TabDS(Dataset):
         eval_xs = eval_xs.squeeze(1)
         return eval_xs
 
-    def __init__(self, X, Y, num_features, pad_features, aggregate_k_gradients=1):
+    def __init__(self, X, Y, num_features, pad_features, aggregate_k_gradients=1, do_preprocess=False, preprocess_type='none'):
         #convert to tensor
         # choices = ['power_all', 'none']
         #pick random choice
         # choice = np.random.choice(choices)
         self.X = torch.from_numpy(X.copy().astype(np.float32))
-        self.X = self.preprocess_input(torch.from_numpy(X.copy().astype(np.float32)), 'none')
+        if do_preprocess:
+            self.X = self.preprocess_input(torch.from_numpy(X.copy().astype(np.float32)), preprocess_type)
         self.y_float = torch.from_numpy(Y.copy().astype(np.float32))
         if self.X.shape[1] < num_features and pad_features:
             # pad with zero features

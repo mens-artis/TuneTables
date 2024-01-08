@@ -43,7 +43,27 @@ for dataset in tqdm(datasets):
                 print("Running command:", ' '.join(command))
             else:
                 # Get task args
+                npp = False
+                npad = False
+                if '-npad' in task:
+                    npad = True
+                    task = task.replace('-npad', '')
+                if '-nopreproc' in task:
+                    npp = True
+                    task = task.replace('-nopreproc', '')
                 next_task = all_tasks[task]
+                if npp:
+                    try:
+                        next_task.pop('do_preprocess')
+                    except:
+                        pass
+                    task_str += '_nopreproc'
+                if npad:
+                    try:
+                        next_task.pop('pad_features')
+                    except:
+                        pass
+                    task_str += '_npad'
                 addl_args = []
                 for k, v in next_task.items():
                     addl_args.append("--" + k)

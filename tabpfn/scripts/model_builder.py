@@ -384,13 +384,15 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
                         , 'permute_feature_position_in_ensemble': config.get('permute_feature_position_in_ensemble', False)
                         , 'bagging': config.get('bagging', False)
                         , 'tuned_prompt_label_balance': config.get('tuned_prompt_label_balance', 'equal')
-                        , 'ens_random_feature_rotation': config.get('ens_random_feature_rotation', False)
+                        , 'reseed_data': config.get('reseed_data', False)
                         , 'zs_eval_ensemble': config.get('zs_eval_ensemble', 0)
                         , 'pad_features': config.get('pad_features', False)
                         , 'early_stopping_patience': config.get('early_stopping_patience', 2)
                         , 'num_classes' : len(set(y_train))
                         , 'min_batches_per_epoch': config.get('min_batches_per_epoch', 10)
                         , 'keep_topk_ensemble': config.get('keep_topk_ensemble', 0)
+                        , 'do_preprocess' : config.get('do_preprocess', False)
+                        , 'preprocess_type' : config.get('preprocess_type', 'none')
                         , 'wandb_log': config.get('wandb_log', False)
                         , **extra_kwargs
     }

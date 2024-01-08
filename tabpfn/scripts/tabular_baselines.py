@@ -184,7 +184,7 @@ def eval_complete_f(x, y, test_x, test_y, key, clf_, metric_used, max_time, no_t
           catch_eval_exceptions=True,
           verbose=True,
           # The seed is deterministic but varies for each dataset and each split of it
-          max_evals=1000)
+          max_evals=100)
       best_score = np.min([t['result']['loss'] for t in trials.trials])
       if best_score < default:
         best = space_eval(param_grid_hyperopt[key], best)
@@ -822,7 +822,7 @@ def well_tuned_simple_nets_metric(X_train, y_train, X_test, y_test, categorical_
                 y_test=y_test.copy(),
                 optimize_metric='balanced_accuracy',
                 total_walltime_limit=max_time,
-                memory_limit=12000,
+                memory_limit=16000,
                 func_eval_time_limit_secs=min(func_eval_time, max_time),
                 enable_traditional_pipeline=False,
                 get_smac_object_callback=get_smac_object,
@@ -882,7 +882,7 @@ def well_tuned_simple_nets_metric(X_train, y_train, X_test, y_test, categorical_
             dataset=dataset,
             run_time_limit_secs=func_eval_time,
             eval_metric='balanced_accuracy',
-            memory_limit=12000,
+            memory_limit=16000,
         )
 
         X_train = dataset.train_tensors[0]
@@ -937,7 +937,7 @@ def autosklearn2_metric(x, y, test_x, test_y, cat_features, metric_used, max_tim
             raise Exception("AutoSklearn 2 doesn't do regression.")
         clf_ = AutoSklearnRegressor
     clf = clf_(time_left_for_this_task=max_time,
-                                                           memory_limit=4000,
+                                                           memory_limit=16000,
                                                            n_jobs=MULTITHREAD,
                seed=int(y[:].sum()),
         # The seed is deterministic but varies for each dataset and each split of it
@@ -1271,7 +1271,7 @@ def catboost_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=30
             return CatBoostClassifier(
                                    loss_function=get_scoring_string(metric_used, usage='catboost'),
                                    thread_count = MULTITHREAD,
-                                   used_ram_limit='4gb',
+                                   used_ram_limit='16gb',
                 random_seed=int(y[:].sum()),
                                    logging_level='Silent',
                                     cat_features=cat_features,
@@ -1281,7 +1281,7 @@ def catboost_metric(x, y, test_x, test_y, cat_features, metric_used, max_time=30
             return CatBoostRegressor(
                 loss_function=get_scoring_string(metric_used, usage='catboost'),
                 thread_count=MULTITHREAD,
-                used_ram_limit='4gb',
+                used_ram_limit='16gb',
                 random_seed=int(y[:].sum()),
                 logging_level='Silent',
                 cat_features=cat_features,

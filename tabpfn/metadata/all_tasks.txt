@@ -1,10 +1,13 @@
 ft
+zs-1
+zs-2
 zs-4
 zs-8
 zs-16
 zs-32
 pt10
 pt100
+pt100-nopreproc
 pt100-prop
 pt100-rand
 pt100-pca

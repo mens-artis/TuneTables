@@ -85,9 +85,66 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
             return single_eval_pos, single_eval_pos + bptt_extra_samples
         else:
             return single_eval_pos, bptt
+
+    def loop_translate(a, my_dict):
+        new_a = np.empty(a.shape)
+        if a.ndim == 1:
+            for i,elem in enumerate(a):
+                new_a[i] = my_dict.get(elem)
+        elif a.ndim == 2:
+            # print("In loop translate: ")
+            # print("a shape: ", a.shape)
+            # print("a: ", a[:5, ...])
+            new_a = []
+            for val in list(my_dict.keys()):
+                new_a.append(a[:, val])
+            if isinstance(new_a[0], np.ndarray):
+                new_a = np.stack(new_a, axis=1)
+            else:
+                #torch tensor
+                new_a = torch.stack(new_a, axis=1)
+            # print("new_a shape: ", new_a.shape)
+            # print("new_a: ", new_a[:5, ...])
+        return new_a
+
+    def make_datasets():
+        X, y = priordataloader_class[0][0], priordataloader_class[0][1]
+        # print("In make datasets: ")
+        #print("unique y: ", np.unique(y))
+        X_val, y_val = priordataloader_class[1][0], priordataloader_class[1][1]
+        X_test, y_test = priordataloader_class[2][0], priordataloader_class[2][1]
+        #shuffle data
+        label_perm = np.random.permutation(num_classes)
+        # label_perm = np.arange(num_classes)
+        invert_perm_map = {
+            label_perm[i]: i for i in range(num_classes)
+        }
+        rev_invert_perm_map = {
+            i: label_perm[i] for i in range(num_classes)
+        }
+        # feat_idx = np.arange(X.shape[1])
+        feat_idx = np.random.permutation(X.shape[1])
+        idx = np.random.permutation(X.shape[0])
+        X = X[idx, ...]
+        y = y[idx, ...]
+        # print("y: ", y[:20, ...])
+        # print("Label perm: ", label_perm)
+        new_y = loop_translate(y, rev_invert_perm_map)
+        # for i in range(num_classes):
+        #     new_y[i] = y[rev_invert_perm_map[i]]
+        # print("New y: ", new_y[:20, ...])
+        # y = label_perm[y[idx, ...]]
+        X = X[:, feat_idx, ...]
+        X_val = X_val[:, feat_idx, ...]
+        X_test = X_test[:, feat_idx, ...]
+        return X, new_y, X_val, y_val, X_test, y_test, invert_perm_map
     
     def make_dataloaders(bptt=bptt):
-        train_ds = TabDS(X, y, num_features=num_features, pad_features=extra_prior_kwargs_dict.get("pad_features", True), aggregate_k_gradients=aggregate_k_gradients)
+        train_ds = TabDS(X, y, num_features=num_features, 
+                         pad_features=extra_prior_kwargs_dict.get("pad_features", True), 
+                         do_preprocess=extra_prior_kwargs_dict.get("do_preprocess", False),
+                         preprocess_type=extra_prior_kwargs_dict.get("preprocess_type", "none"),
+                         aggregate_k_gradients=aggregate_k_gradients)
         dl, bptt = get_train_dataloader(train_ds, 
                                   bptt=bptt, 
                                   shuffle=False, 
@@ -95,66 +152,80 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                                   drop_last=True, 
                                   agg_k_grads=aggregate_k_gradients
                                 )
-        val_ds = TabDS(X_val, y_val, num_features=num_features, pad_features=extra_prior_kwargs_dict.get("pad_features", True), aggregate_k_gradients=1)
+        val_ds = TabDS(X_val, y_val, num_features=num_features, 
+                       pad_features=extra_prior_kwargs_dict.get("pad_features", True), 
+                       do_preprocess=extra_prior_kwargs_dict.get("do_preprocess", False),
+                       preprocess_type=extra_prior_kwargs_dict.get("preprocess_type", "none"),
+                       aggregate_k_gradients=1)
         val_dl = DataLoader(
             val_ds, batch_size=min(32, y_val.shape[0]), shuffle=False, num_workers=1,
         )
-        test_ds = TabDS(X_test, y_test, num_features=num_features, pad_features=extra_prior_kwargs_dict.get("pad_features", True), aggregate_k_gradients=1)
+        test_ds = TabDS(X_test, y_test, num_features=num_features, 
+                        pad_features=extra_prior_kwargs_dict.get("pad_features", True),
+                        do_preprocess=extra_prior_kwargs_dict.get("do_preprocess", False), 
+                        preprocess_type=extra_prior_kwargs_dict.get("preprocess_type", "none"),
+                        aggregate_k_gradients=1)
         test_dl = DataLoader(
             test_ds, batch_size=min(32, y_test.shape[0]), shuffle=False, num_workers=1,
         )
-        return dl, val_dl, test_dl, bptt
-
-    if real_prior:
-        #load data
-        X, y = priordataloader_class[0][0], priordataloader_class[0][1]
-        X_val, y_val = priordataloader_class[1][0], priordataloader_class[1][1]
-        X_test, y_test = priordataloader_class[2][0], priordataloader_class[2][1]
-        num_classes = len(np.unique(y))
-        data_for_fitting = None
-        if do_prompt_tuning and extra_prior_kwargs_dict.get('tuned_prompt_label_balance', 'equal') == 'proportional':
-            label_weights = np.bincount(y) / len(y)
-            label_weights = torch.from_numpy(label_weights).float().to(device)
-        else:
-            label_weights = None
-        #shuffle data
-        idx = np.random.permutation(len(X))
-        X, y = X[idx], y[idx]
-        idx = np.random.permutation(len(X_val))
-        X_val, y_val = X_val[idx], y_val[idx]
-        idx = np.random.permutation(len(X_test))
-        X_test, y_test = X_test[idx], y_test[idx]
-
-        #make dataloaders
-        dl, val_dl, test_dl, bptt = make_dataloaders(bptt=bptt)
-
         # Fix the prior data TabPFN will use for fitting when including real data points
         for _, (td, _, _) in enumerate(dl):
             data_for_fitting = td
             break
+        return dl, val_dl, test_dl, bptt, data_for_fitting
+
+    if real_prior:
+        data_for_fitting = None
+        num_classes = len(np.unique(priordataloader_class[0][1]))
+        if do_prompt_tuning and extra_prior_kwargs_dict.get('tuned_prompt_label_balance', 'equal') == 'proportional':
+            label_weights = np.bincount(priordataloader_class[0][1]) / len(priordataloader_class[0][1])
+            label_weights = torch.from_numpy(label_weights).float().to(device)
+        else:
+            label_weights = None
+
+        #load data
+        X, y, X_val, y_val, X_test, y_test, invert_perm_map = make_datasets()
+        #make dataloaders
+        dl, val_dl, test_dl, bptt, data_for_fitting = make_dataloaders(bptt=bptt)
 
         if extra_prior_kwargs_dict.get('zs_eval_ensemble', 0) > 0:
 
             def tpc_data_eval(cl=1000, X=None, y=None, X_val=None, y_val=None, ens_size=1):
+                    print("Num classes: ", num_classes)
                     from scripts.transformer_prediction_interface import TabPFNClassifier
                     results = dict()
                     if cl > len(X):
                         cl = len(X) - 1
                     eval_model = TabPFNClassifier(device='cuda', 
                                                 N_ensemble_configurations=ens_size, 
-                                                base_path="/home/benfeuer/TabPFN-pt/tabpfn", 
+                                                base_path="/home/benfeuer/TabPFN-pt/tabpfn",
+                                                # seed=None,
+                                                seed=extra_prior_kwargs_dict.get('rand_seed', 0),
                                                 )
                     eval_model.fit(X[:cl, ...], y[:cl, ...], overwrite_warning=True)
-                    predictions = eval_model.predict(X_val)
+                    predictions = eval_model.predict(X_val).astype(np.int64)
                     outputs = eval_model.predict_proba(X_val)
+                    #invert permutation of labels
+                    new_output = np.zeros_like(outputs)
+                    for i in range(num_classes):
+                        new_output[:, invert_perm_map[i]] = outputs[:, i]
                     targets = y_val
+                    # print("Predictions shape: ", predictions.shape)
+                    # print("predictions numpy type: ", predictions.dtype)
+                    # print("Predictions: ", predictions[:20, ...])
+                    # print("Targets shape: ", targets.shape)
+                    # print("Targets numpy type: ", targets.dtype)
+                    # print("Targets: ", targets[:20, ...])
                     warnings.filterwarnings("ignore")
                     results['Accuracy'] = np.round(accuracy_score(targets, predictions), 3).item()
                     results['Log_Loss'] = np.round(log_loss(targets, outputs, labels=np.arange(num_classes)), 3).item()
                     results['F1_Weighted'] = np.round(f1_score(targets, predictions, average='weighted'), 3).item()
                     results['F1_Macro'] = np.round(f1_score(targets, predictions, average='macro'), 3).item()
                     try:
-                        results['ROC_AUC'] = np.round(roc_auc_score(targets, predictions, labels=np.arange(num_classes), multi_class='ovr'), 3).item()
+                        if num_classes == 2:
+                            results['ROC_AUC'] = np.round(roc_auc_score(targets, outputs[:, 1], labels=np.arange(num_classes)), 3).item()
+                        else:
+                            results['ROC_AUC'] = np.round(roc_auc_score(targets, outputs, labels=np.arange(num_classes), multi_class='ovr'), 3).item()
                     except Exception as e:
                         print("Error calculating ROC AUC: ", e)
                         results['ROC_AUC'] = 0.0
@@ -229,7 +300,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         lr = get_openai_lr(model)
         print(f"Using OpenAI max lr of {lr}.")
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    scheduler = scheduler(optimizer, warmup_epochs, epochs if epochs is not None else 100) # when training for fixed time lr schedule takes 100 steps
+    sched_obj = scheduler(optimizer, warmup_epochs, epochs if epochs is not None else 100) # when training for fixed time lr schedule takes 100 steps
 
     scaler = GradScaler() if train_mixed_precision else None
 
@@ -240,12 +311,13 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
 
     master_epoch_count = []
     
-    def real_data_eval(r_model, cl=1000, train_data=None, val_dl=None):
-        import copy
+    def real_data_eval(r_model, cl=1000, train_data=None, val_dl=None, softmax_temperature = torch.log(torch.tensor([0.8]))):
         td = copy.deepcopy(train_data)
+        #
         td[0] = td[0][:cl, ...]
         td[1] = td[1][:cl, ...]
         single_eval_pos = len(td[0])
+        softmax_temperature = softmax_temperature.to(device)
         with torch.no_grad():
             # correct = 0
             # total = len(val_dl.dataset)
@@ -256,15 +328,34 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                 batch_data = tuple([torch.cat((td[0], data[0]), dim=0), torch.cat((td[1], data[1]), dim=0)])
                 output = r_model(tuple(e.to(device) if torch.is_tensor(e) else e for e in batch_data) if isinstance(batch_data, tuple) else batch_data.to(device)
                     , single_eval_pos=single_eval_pos)
-                invalid_labels = torch.arange(num_classes, 10).to(device)
-                output[:, invalid_labels] = float("-inf")
+                #invert permutation of labels
+                _, predicted = torch.max(output.cpu().data, 1)
+                # print("In real data eval: ")
+                # print("Original preds: ", predicted[:20, ...])
+                new_output = loop_translate(output, invert_perm_map)
+                # new_output = torch.zeros_like(output)
+                # for i in range(num_classes):
+                #     new_output[:, invert_perm_map[i]] = output[:, i]
+                output = new_output
+                output = output[:, 0:num_classes] / torch.exp(softmax_temperature)
+                output = torch.nn.functional.softmax(output, dim=-1)
                 output_list.append(output)
                 _, predicted = torch.max(output.cpu().data, 1)
+                # print("New preds: ", predicted[:20, ...])
+                # print("Targets: ", targets[:20, ...])
                 prediction_list.append(predicted)
                 target_list.append(targets)
-            outputs = torch.cat(output_list, dim=0)[:, :num_classes].cpu().numpy()
+            outputs = torch.cat(output_list, dim=0).cpu().numpy()
             predictions = torch.cat(prediction_list, dim=0).cpu().numpy()
             targets = torch.cat(target_list, dim=0).cpu().numpy()
+            # print("Predictions shape: ", predictions.shape)
+            # print("predictions numpy type: ", predictions.dtype)
+            # print("Predictions: ", predictions[:20, ...])
+            # print("Predictions: ", predictions[-20:, ...])
+            # # print("Targets shape: ", targets.shape)
+            # # print("Targets numpy type: ", targets.dtype)
+            # print("Targets: ", targets[:20, ...])
+            # print("Targets: ", targets[-20:, ...])
             # assert len(outputs) == len(predictions) == total, "Samples missing from eval: found {}, expected {}".format(len(outputs), total)
             # correct += (predictions == targets).sum().item()
 
@@ -275,18 +366,34 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         results['F1_Weighted'] = np.round(f1_score(targets, predictions, average='weighted'), 3).item()
         results['F1_Macro'] = np.round(f1_score(targets, predictions, average='macro'), 3).item()
         try:
-            results['ROC_AUC'] = np.round(roc_auc_score(targets, predictions, labels=np.arange(num_classes), multi_class='ovr'), 3).item()
+            if num_classes == 2:
+                results['ROC_AUC'] = np.round(roc_auc_score(targets, outputs[:, 1], labels=np.arange(num_classes)), 3).item()
+            else:
+                results['ROC_AUC'] = np.round(roc_auc_score(targets, outputs, labels=np.arange(num_classes), multi_class='ovr'), 3).item()
         except Exception as e:
             print("Error calculating ROC AUC: ", e)
             results['ROC_AUC'] = 0.0
         results['ECE'] = np.round(um.ece(targets, outputs, num_bins=30), 3).item()
         results['TACE'] = np.round(um.tace(targets, outputs, num_bins=30), 3).item()
+        # print("Targets shape: ", targets.shape)
+        # print("Targets: ", targets[:20, ...])
+        # print("Predictions shape: ", predictions.shape)
+        # print("Predictions: ", predictions[:20, ...])
+        # raise Exception("Stop here")
         warnings.filterwarnings("default")
 
         return results, outputs, targets
     
-    def train_epoch(model, optimizer, boost_this_epoch=False):
-        model.train()  # Turn on the train mode
+    def train_epoch(e_model, e_optimizer, boost_this_epoch=False):
+        e_model.train()  # Turn on the train mode
+        # Confirm that the correct params are frozen and unfrozen
+        if do_prompt_tuning:
+            e_model.freeze_parameters_except_prefix()
+            for n, p in e_model.named_parameters():
+                if "prefix_embedding" not in n:
+                    assert not p.requires_grad, "Non-prefix parameter {} requires grad!".format(n)
+                elif "prefix_embedding" in n:
+                    assert p.requires_grad, "Prefix parameter {} does not require grad!".format(n)
         total_loss = 0.
         total_positional_losses = 0.
         total_positional_losses_recorded = 0
@@ -298,13 +405,18 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         before_get_batch = time.time()
         batches_seen = 0
         assert len(dl) % aggregate_k_gradients == 0, 'Please set the number of steps per epoch s.t. `aggregate_k_gradients` divides it.'
+        # if do_prompt_tuning:
+        #     wbu = e_model.prefix_embedding.weight.detach().clone()
+        #     print("Prompt weights before: ", wbu[:10, ...])
+            # print("Prompt requires grad: ", e_model.prefix_embedding.weight.requires_grad)
         for batch, (data, targets, single_eval_pos) in enumerate(dl):
             if isinstance(data, list):
                 data = tuple(data)
             if isinstance(single_eval_pos, torch.Tensor) and single_eval_pos.numel() == 0:
                 single_eval_pos = None
             if using_dist and not (batch % aggregate_k_gradients == aggregate_k_gradients - 1):
-                cm = model.no_sync()
+                print("using dist, No sync")
+                cm = e_model.no_sync()
             else:
                 cm = nullcontext()
 
@@ -323,7 +435,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
 
                 with autocast(enabled=scaler is not None):
                     # If style is set to None, it should not be transferred to device
-                    output = model(tuple(e.to(device) if torch.is_tensor(e) else e for e in data) if isinstance(data, tuple) else data.to(device)
+                    output = e_model(tuple(e.to(device) if torch.is_tensor(e) else e for e in data) if isinstance(data, tuple) else data.to(device)
                                    , single_eval_pos=single_eval_pos)
                     assert output.requires_grad, "Output does not require gradients"
                     forward_time = time.time() - before_forward
@@ -386,20 +498,19 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                     output.backward(output_grad)
                     # gradient_dict[batch] = torch.cat(cur_grads, dim=0)
                 else:
-                    loss.backward()
-                
+                    loss.backward()             
                 if batch % aggregate_k_gradients == aggregate_k_gradients - 1:
-                    if scaler: scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
+                    if scaler: scaler.unscale_(e_optimizer)
+                    torch.nn.utils.clip_grad_norm_(e_model.parameters(), 1.)
                     try:
                         if scaler:
-                            scaler.step(optimizer)
+                            scaler.step(e_optimizer)
                             scaler.update()
                         else:
-                            optimizer.step()
+                            e_optimizer.step()
                     except:
                         print("Invalid optimization step encountered")
-                    optimizer.zero_grad()
+                    e_optimizer.zero_grad()
 
                 step_time = time.time() - before_forward
 
@@ -426,7 +537,10 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
             total_positional_losses = torch.zeros(bptt)
         if isinstance(total_positional_losses_recorded, float):
             total_positional_losses_recorded = torch.ones(bptt)
-
+        # if do_prompt_tuning:
+        #     wbn = e_model.prefix_embedding.weight.detach().clone()
+        #     print("Prompt weights after: ", wbn[:10, ...])
+            # print("Prompt requires grad: ", e_model.prefix_embedding.weight.requires_grad)
         return total_loss / max(steps_per_epoch, 1), (total_positional_losses / total_positional_losses_recorded).tolist(),\
                time_to_get_batch, forward_time, step_time, nan_steps.cpu().item()/(batch+1),\
                ignore_steps.cpu().item()/(batch+1)
@@ -517,7 +631,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         }
         return new_res
 
-    def train_test_loop(t_model, t_optim):        
+    def train_test_loop(t_model, t_optim, t_sched, dl, val_dl, test_dl):        
         # Select a fixed training data prior of size bptt
         return_outputs = None
         return_targets = None
@@ -530,13 +644,6 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         best_targets = None
         is_best = False
         patience = 0
-
-        # Confirm that parameters except for the prefix are frozen if we are prompt tuning
-        if do_prompt_tuning:
-            t_model.freeze_parameters_except_prefix()
-            for n, p in t_model.named_parameters():
-                if "prefix_embedding" not in n:
-                    assert not p.requires_grad, "Non-prefix parameter {} requires grad!".format(n)
 
         for epoch in (range(1, epochs + 1) if epochs is not None else itertools.count(1)):
             is_best = False
@@ -582,6 +689,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                         t_model = restore_embedding(ec, t_model)
                         # Update optimizer parameters to include new embedding
                         t_optim = torch.optim.AdamW(t_model.parameters(), lr=lr, weight_decay=weight_decay)
+                        t_sched = scheduler(t_optim, warmup_epochs, epochs if epochs is not None else 100)
                     else:
                         val_score_nc_concat = ""
                         val_score_concat = ""
@@ -654,7 +762,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                         json.dump(res_dict, f, indent=4)
 
             # stepping with wallclock time based scheduler
-            scheduler.step()
+            t_sched.step()
 
 
         wandb.log({
@@ -676,6 +784,10 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
 
         if do_prompt_tuning and isinstance(best_val_embed, torch.Tensor):
             t_model.prefix_embedding.weight = nn.Parameter(best_val_embed.to(device))
+            #set requires grad to true
+            t_model.prefix_embedding.weight.requires_grad = True
+            t_optim = torch.optim.AdamW(t_model.parameters(), lr=lr, weight_decay=weight_decay)
+            t_sched = scheduler(t_optim, warmup_epochs, epochs if epochs is not None else 100)
             v_scr, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=bptt, train_data=data_for_fitting, val_dl=val_dl)
             if v_scr['Accuracy'] != best_res_dict['Val_Accuracy']:
                 print("Best embedding score {} does not match best score {}!".format(v_scr, best_res_dict['Val_Accuracy']))
@@ -714,7 +826,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                                             agg_k_grads=aggregate_k_gradients)
         prior_grad_dict = None
         gradient_dict = {}
-        output_dict[i], test_targets, results_dict = train_test_loop(model, optimizer)
+        output_dict[i], test_targets, results_dict = train_test_loop(model, optimizer, sched_obj, dl, val_dl, test_dl)
         res_dict_ensemble[i] = results_dict
         prior_grad_dict = gradient_dict
         # probs np and labels np are used by update_ensemble_acc for ECE and TACE
@@ -743,28 +855,26 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         for i in range(1, boosting_n_iters):
             master_epoch_count.append(1)
             seed_all(extra_prior_kwargs_dict.get('rand_seed') + i)
-            if extra_prior_kwargs_dict.get('ens_random_feature_rotation', True):
-                # print("Randomly rotating features")
-                #shuffle features
-                idx = np.random.permutation(X.shape[1])
-                X, X_val, X_test = priordataloader_class[0][0][:, idx], priordataloader_class[1][0][:, idx], priordataloader_class[2][0][:, idx]
+            if extra_prior_kwargs_dict.get('reseed_data', True):
+                #load data
+                extra_prior_kwargs_dict['preprocess_type'] = np.random.choice(['none', 'power_all', 'robust_all', 'quantile_all'])
+                X, y, X_val, y_val, X_test, y_test, invert_perm_map = make_datasets()
                 #make dataloaders
-                dl, val_dl, test_dl, bptt = make_dataloaders()
+                dl, val_dl, test_dl, bptt, data_for_fitting = make_dataloaders(bptt=bptt)
                 if bagging:
                     dl_backup = dl
             if bagging:
                 subset_dataset = Subset(dl_backup.dataset, split_indices[i])
                 dl = DataLoader(
-                    subset_dataset, batch_size=bptt, shuffle=True, num_workers=1, drop_last=True,
+                    subset_dataset, batch_size=bptt, shuffle=False, num_workers=1, drop_last=True,
                 )
-            if extra_prior_kwargs_dict.get('ens_random_subsets', True):
-                dl, val_dl, test_dl, bptt = make_dataloaders()
-                
+
             cur_boost_iter = i
             print("Ensembling iteration: ", i+1, " of ", boosting_n_iters, "\n \n")
             model.init_prefix_weights()
-            output_dict[i], test_targets, results_dict = train_test_loop(model, optimizer)
-            print("output_dict",output_dict.keys())
+            optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+            sched_obj = scheduler(optimizer, warmup_epochs, epochs if epochs is not None else 100)
+            output_dict[i], test_targets, results_dict = train_test_loop(model, optimizer, sched_obj, dl, val_dl, test_dl)
             res_dict_ensemble[i] = results_dict
             if do_prompt_tuning:
                 prefix_weights_l = save_prefix_weights(model, extra_prior_kwargs_dict.get('save_path'), i, do_concat, prefix_weights_l)

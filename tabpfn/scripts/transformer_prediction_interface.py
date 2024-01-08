@@ -277,7 +277,6 @@ class TabPFNClassifier(BaseEstimator, ClassifierMixin):
         y_full = torch.tensor(y_full, device=self.device).float().unsqueeze(1)
 
         eval_pos = self.X_.shape[0]
-
         prediction = transformer_predict(self.model[2], X_full, y_full, eval_pos,
                                          device=self.device,
                                          style=self.style,
@@ -301,6 +300,7 @@ class TabPFNClassifier(BaseEstimator, ClassifierMixin):
 
     def predict(self, X, return_winning_probability=False, normalize_with_test=False, return_early=False):
         p = self.predict_proba(X, normalize_with_test=normalize_with_test, return_early=return_early)
+        # print('p', p.shape, p.mean(axis=0), p[:10, ...])
         y = np.argmax(p, axis=-1)
         y = self.classes_.take(np.asarray(y, dtype=np.intp))
         if return_winning_probability:
@@ -359,7 +359,6 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
     :return:
     """
     num_classes = len(torch.unique(eval_ys))
-
     def predict(eval_xs, eval_ys, used_style, softmax_temperature, return_logits):
         # Initialize results array size S, B, Classes
         # no_grad disables inference_mode, because otherwise the gradients are lost
@@ -385,6 +384,11 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
         return output
 
     def preprocess_input(eval_xs, preprocess_transform):
+        # print("In ZS preprocess transform: ")
+        # print("preprocess_transform: ", preprocess_transform)
+        # print("max_features: ", max_features)
+        # print("normalize with test: ", normalize_with_test)
+        # print("normalize with sqrt: ", normalize_with_sqrt)
         import warnings
 
         if eval_xs.shape[1] > 1:
@@ -477,23 +481,17 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
     class_shift_configurations = torch.randperm(len(torch.unique(eval_ys))) if multiclass_decoder == 'permutation' else [0]
 
     ensemble_configurations = list(itertools.product(class_shift_configurations, feature_shift_configurations))
-    # default_ensemble_config = ensemble_configurations[0]
-
-    print('setting random.Random seed to', seed)
     rng = random.Random(seed)
     rng.shuffle(ensemble_configurations)
     ensemble_configurations = list(itertools.product(ensemble_configurations, preprocess_transform_configurations, styles_configurations))
     ensemble_configurations = ensemble_configurations[0:N_ensemble_configurations]
-    # if N_ensemble_configurations == 1:
-    #    ensemble_configurations = [default_ensemble_config]
 
     output = None
-
     eval_xs_transformed = {}
     inputs, labels = [], []
     start = time.time()
     for ensemble_configuration in ensemble_configurations:
-        print('ensemble_configuration', ensemble_configuration)
+        # print('ensemble_configuration', ensemble_configuration)
         (class_shift_configuration, feature_shift_configuration), preprocess_transform_configuration, styles_configuration = ensemble_configuration
 
         style_ = style[styles_configuration:styles_configuration+1, :] if style is not None else style

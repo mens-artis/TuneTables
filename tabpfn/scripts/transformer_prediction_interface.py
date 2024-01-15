@@ -17,7 +17,7 @@ from sklearn.utils.multiclass import check_classification_targets
 from sklearn.utils import column_or_1d
 from sklearn.preprocessing import LabelEncoder
 from pathlib import Path
-from scripts.model_builder import load_model, load_model_only_inference
+from tabpfn.scripts.model_builder import load_model, load_model_only_inference
 import os
 import pickle
 import io

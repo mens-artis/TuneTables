@@ -24,6 +24,7 @@ from priors.real import TabDS, get_train_dataloader
 import tabpfn.encoders as encoders
 import tabpfn.positional_encodings as positional_encodings
 from utils import init_dist, seed_all, EmbeddingConcatenator
+from fairlearn.metrics import demographic_parity_difference
 
 from torch.cuda.amp import autocast, GradScaler
 from torch import nn
@@ -108,11 +109,11 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         return new_a
 
     def make_datasets(do_permute=True):
-        X, y = priordataloader_class[0][0], priordataloader_class[0][1]
+        X, y, s = priordataloader_class[0][0], priordataloader_class[0][1], priordataloader_class[0][2]
         # print("In make datasets: ")
         #print("unique y: ", np.unique(y))
-        X_val, y_val = priordataloader_class[1][0], priordataloader_class[1][1]
-        X_test, y_test = priordataloader_class[2][0], priordataloader_class[2][1]
+        X_val, y_val, s_val = priordataloader_class[1][0], priordataloader_class[1][1], priordataloader_class[1][2]
+        X_test, y_test, s_test = priordataloader_class[2][0], priordataloader_class[2][1], priordataloader_class[2][2]
         #shuffle data
         if do_permute:
             label_perm = np.random.permutation(num_classes)
@@ -133,6 +134,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         idx = np.random.permutation(X.shape[0])
         X = X[idx, ...]
         y = y[idx, ...]
+        s = s[idx, ...]
         # print("y: ", y[:20, ...])
         # print("Label perm: ", label_perm)
         new_y = loop_translate(y, rev_invert_perm_map)
@@ -143,7 +145,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         X = X[:, feat_idx, ...]
         X_val = X_val[:, feat_idx, ...]
         X_test = X_test[:, feat_idx, ...]
-        return X, new_y, X_val, y_val, X_test, y_test, invert_perm_map
+        return X, new_y, s, X_val, y_val, s_val, X_test, y_test, s_test, invert_perm_map
     
     def make_dataloaders(bptt=bptt):
 
@@ -151,7 +153,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
             print("Warning: bptt is larger than the number of training examples. Setting bptt to half the number of training examples")
             bptt = (X.shape[0] // 2) - 2
 
-        train_ds = TabDS(X, y, num_features=num_features, 
+        train_ds = TabDS(X, y, s, num_features=num_features,
                          pad_features=extra_prior_kwargs_dict.get("pad_features", True), 
                          do_preprocess=extra_prior_kwargs_dict.get("do_preprocess", False),
                          preprocess_type=extra_prior_kwargs_dict.get("preprocess_type", "none"),
@@ -163,7 +165,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                                   drop_last=True, 
                                   agg_k_grads=aggregate_k_gradients
                                 )
-        val_ds = TabDS(X_val, y_val, num_features=num_features, 
+        val_ds = TabDS(X_val, y_val, s_val, num_features=num_features,
                        pad_features=extra_prior_kwargs_dict.get("pad_features", True), 
                        do_preprocess=extra_prior_kwargs_dict.get("do_preprocess", False),
                        preprocess_type=extra_prior_kwargs_dict.get("preprocess_type", "none"),
@@ -171,7 +173,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         val_dl = DataLoader(
             val_ds, batch_size=min(128, y_val.shape[0] // 2), shuffle=False, num_workers=1,
         )
-        test_ds = TabDS(X_test, y_test, num_features=num_features, 
+        test_ds = TabDS(X_test, y_test, s_test, num_features=num_features,
                         pad_features=extra_prior_kwargs_dict.get("pad_features", True),
                         do_preprocess=extra_prior_kwargs_dict.get("do_preprocess", False), 
                         preprocess_type=extra_prior_kwargs_dict.get("preprocess_type", "none"),
@@ -180,7 +182,8 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
             test_ds, batch_size=min(128, y_test.shape[0] // 2), shuffle=False, num_workers=1,
         )
         # Fix the prior data TabPFN will use for fitting when including real data points
-        for _, (td, _, _) in enumerate(dl):
+        print(dl)
+        for _, (td, _, _, _) in enumerate(dl):
             data_for_fitting = td
             break
         return dl, val_dl, test_dl, bptt, data_for_fitting
@@ -197,7 +200,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         #load data
         not_zs = extra_prior_kwargs_dict.get('zs_eval_ensemble', 0) == 0
 
-        X, y, X_val, y_val, X_test, y_test, invert_perm_map = make_datasets(do_permute=not_zs)
+        X, y, s, X_val, y_val, s_val, X_test, y_test, s_test, invert_perm_map = make_datasets(do_permute=not_zs)
         #make dataloaders
         dl, val_dl, test_dl, bptt, data_for_fitting = make_dataloaders(bptt=bptt)
 
@@ -212,7 +215,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                         cl = len(X) - 1
                     eval_model = TabPFNClassifier(device='cuda', 
                                                 N_ensemble_configurations=ens_size, 
-                                                base_path="/home/benfeuer/TabPFN-pt/tabpfn",
+                                                base_path="/cmlscratch/vcherepa/TabPFN-pt/tabpfn",
                                                 # seed=None,
                                                 seed=extra_prior_kwargs_dict.get('rand_seed', 0),
                                                 batch_size_inference=1,
@@ -368,8 +371,9 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
             # total = len(val_dl.dataset)
             prediction_list = []
             target_list = []
+            sensattr_list = []
             output_list = []
-            for batch, (data, targets, _) in enumerate(val_dl):
+            for batch, (data, targets, sensattr, _) in enumerate(val_dl):
                 batch_data = tuple([torch.cat((td[0], data[0]), dim=0), torch.cat((td[1], data[1]), dim=0)])
                 output = r_model(tuple(e.to(device) if torch.is_tensor(e) else e for e in batch_data) if isinstance(batch_data, tuple) else batch_data.to(device)
                     , single_eval_pos=single_eval_pos)
@@ -390,9 +394,11 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                 # print("Targets: ", targets[:20, ...])
                 prediction_list.append(predicted)
                 target_list.append(targets)
+                sensattr_list.append(sensattr)
             outputs = torch.cat(output_list, dim=0).cpu().numpy()
             predictions = torch.cat(prediction_list, dim=0).cpu().numpy()
             targets = torch.cat(target_list, dim=0).cpu().numpy()
+            sensattributes = torch.cat(sensattr_list, dim=0).cpu().numpy()
             # print("Predictions shape: ", predictions.shape)
             # print("predictions numpy type: ", predictions.dtype)
             # print("Predictions: ", predictions[:20, ...])
@@ -410,6 +416,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         results['Log_Loss'] = np.round(log_loss(targets, outputs, labels=np.arange(num_classes)), 3).item()
         results['F1_Weighted'] = np.round(f1_score(targets, predictions, average='weighted'), 3).item()
         results['F1_Macro'] = np.round(f1_score(targets, predictions, average='macro'), 3).item()
+        results['Demographic parity'] = np.round(demographic_parity_difference(targets,predictions,sensitive_features=sensattributes), 3).item()
         try:
             if num_classes == 2:
                 results['ROC_AUC'] = np.round(roc_auc_score(targets, outputs[:, 1], labels=np.arange(num_classes)), 3).item()
@@ -428,6 +435,23 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
         warnings.filterwarnings("default")
 
         return results, outputs, targets
+
+    def demographic_parity_regularizer(outputs, sensitive_attributes, lambda_factor=0.1):
+
+        probabilities = torch.softmax(outputs, dim=1)[:, 1]
+
+        # Split the probabilities based on the sensitive attribute
+        prob_group_0 = probabilities[sensitive_attributes == 0]
+        prob_group_1 = probabilities[sensitive_attributes == 1]
+
+        # Calculate the mean probability of positive outcome for each group
+        mean_prob_group_0 = prob_group_0.mean()
+        mean_prob_group_1 = prob_group_1.mean()
+
+        # Demographic parity loss: difference in probabilities between groups
+        dp_loss = torch.abs(mean_prob_group_0 - mean_prob_group_1)
+
+        return lambda_factor * dp_loss
     
     def train_epoch(e_model, e_optimizer, boost_this_epoch=False):
         e_model.train()  # Turn on the train mode
@@ -459,7 +483,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
             # print("Prompt requires grad: ", e_model.prefix_embedding.weight.requires_grad)
         shuffle_every_epoch = extra_prior_kwargs_dict.get('shuffle_every_epoch', False)
         permute_feature_pos = extra_prior_kwargs_dict.get('permute_feature_position_in_ensemble', False)
-        for batch, (data, targets, single_eval_pos) in enumerate(dl):
+        for batch, (data, targets, sensattr, single_eval_pos) in enumerate(dl):
             if isinstance(data, list):
                 data = tuple(data)
             if isinstance(single_eval_pos, torch.Tensor) and single_eval_pos.numel() == 0:
@@ -492,11 +516,13 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                     # If style is set to None, it should not be transferred to device
                     output = e_model(tuple(e.to(device) if torch.is_tensor(e) else e for e in data) if isinstance(data, tuple) else data.to(device)
                                    , single_eval_pos=single_eval_pos)
+
                     assert output.requires_grad, "Output does not require gradients"
                     forward_time = time.time() - before_forward
 
                     if single_eval_pos is not None:
                         targets = targets[single_eval_pos:]
+                        sensattr = sensattr[single_eval_pos:]
                     if isinstance(criterion, nn.GaussianNLLLoss):
                         assert output.shape[-1] == 2, \
                             'need to write a little bit of code to handle multiple regression targets at once'
@@ -507,6 +533,9 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                         losses = criterion(output.flatten(), targets.to(device).flatten())
                     elif isinstance(criterion, nn.CrossEntropyLoss):
                         losses = criterion(output.reshape(-1, n_out), targets.to(device).long().flatten())
+                        # TODO: hardcoded fairness penalty
+                        reg = demographic_parity_regularizer(output.reshape(-1, n_out), sensattr, lambda_factor=1.0)
+
                     else:
                         losses = criterion(output, targets)
                     if boosting:
@@ -520,7 +549,9 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                         losses = losses.view(*output.shape[0:2])
 
                         loss, nan_share = utils.torch_nanmean(losses.mean(0), return_nanshare=True)
+                        loss = loss+reg
                         loss = loss / aggregate_k_gradients
+
 
                 if scaler: loss = scaler.scale(loss)
                 if boosting and boost_this_epoch:

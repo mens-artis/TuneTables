@@ -26,6 +26,7 @@ class TabularDataset(object):
         name: str,
         X: np.ndarray,
         y: np.ndarray,
+        s: np.ndarray,
         cat_idx: list,
         target_type: str,
         num_classes: int,
@@ -54,12 +55,16 @@ class TabularDataset(object):
         ), "X and y must match along their 0-th dimensions"
         assert len(X.shape) == 2, "X must be 2-dimensional"
         assert len(y.shape) == 1, "y must be 1-dimensional"
+        assert len(s.shape) == 1, "y must be 1-dimensional"
 
         if num_instances is not None:
             assert (
                 X.shape[0] == num_instances
             ), f"first dimension of X must be equal to num_instances. X has shape {X.shape}"
             assert y.shape == (
+                num_instances,
+            ), f"shape of y must be (num_instances, ). y has shape {y.shape} and num_instances={num_instances}"
+            assert s.shape == (
                 num_instances,
             ), f"shape of y must be (num_instances, ). y has shape {y.shape} and num_instances={num_instances}"
         else:
@@ -88,6 +93,7 @@ class TabularDataset(object):
         self.name = name
         self.X = X
         self.y = y
+        self.s = s
         self.cat_idx = cat_idx
         self.target_type = target_type
         self.num_classes = num_classes
@@ -103,6 +109,9 @@ class TabularDataset(object):
         # print("target_encode...")
         le = LabelEncoder()
         self.y = le.fit_transform(self.y)
+
+        le_s = LabelEncoder()
+        self.s = le_s.fit_transform(self.s)
 
         # Sanity check
         if self.target_type == "classification":
@@ -146,11 +155,13 @@ class TabularDataset(object):
         # make sure that all required files exist in the directory
         X_path = p.joinpath("X.npy.gz")
         y_path = p.joinpath("y.npy.gz")
+        s_path = p.joinpath("sens_a.npy.gz")
         metadata_path = p.joinpath("metadata.json")
         split_indeces_path = p / "split_indeces.npy.gz"
 
         assert X_path.exists(), f"path to X does not exist: {X_path}"
         assert y_path.exists(), f"path to y does not exist: {y_path}"
+        assert s_path.exists(), f"path to y does not exist: {y_path}"
         assert (
             metadata_path.exists()
         ), f"path to metadata does not exist: {metadata_path}"
@@ -163,6 +174,8 @@ class TabularDataset(object):
             X = np.load(f, allow_pickle=True)
         with gzip.GzipFile(y_path, "r") as f:
             y = np.load(f)
+        with gzip.GzipFile(s_path, "r") as f:
+            s = np.load(f)
         with gzip.GzipFile(split_indeces_path, "rb") as f:
             split_indeces = np.load(f, allow_pickle=True)
 
@@ -170,7 +183,8 @@ class TabularDataset(object):
         with open(metadata_path, "r") as f:
             kwargs = json.load(f)
 
-        kwargs["X"], kwargs["y"], kwargs["split_indeces"] = X, y, split_indeces
+        kwargs["X"], kwargs["y"], kwargs["s"], kwargs["split_indeces"] = X, y, s, split_indeces
+        print("kwargs", kwargs)
         return cls(**kwargs)
 
     def write(self, p: Path, overwrite=False) -> None:
@@ -247,7 +261,7 @@ class SubsetMaker(object):
         self.row_selector = None
         self.feature_selector = None
 
-    def random_subset(self, X, y, action=[]):
+    def random_subset(self, X, y, s, action=[]):
         if "rows" in action:
             row_indices = np.random.choice(X.shape[0], self.subset_rows, replace=False)
         else:
@@ -258,9 +272,9 @@ class SubsetMaker(object):
             )
         else:
             feature_indices = np.arange(X.shape[1])
-        return X[row_indices[:, None], feature_indices], y[row_indices]
+        return X[row_indices[:, None], feature_indices], y[row_indices], s[row_indices]
 
-    def first_subset(self, X, y, action=[]):
+    def first_subset(self, X, y, s, action=[]):
         if "rows" in action:
             row_indices = np.arange(self.subset_rows)
         else:
@@ -269,9 +283,9 @@ class SubsetMaker(object):
             feature_indices = np.arange(self.subset_features)
         else:
             feature_indices = np.arange(X.shape[1])
-        return X[row_indices[:, None], feature_indices], y[row_indices]
+        return X[row_indices[:, None], feature_indices], y[row_indices], s[row_indices]
 
-    def mutual_information_subset(self, X, y, action="features", split="train"):
+    def mutual_information_subset(self, X, y, s, action="features", split="train"):
         if split not in ["train", "val", "test"]:
             raise ValueError("split must be 'train', 'val', or 'test'")
         if split == "train":
@@ -292,7 +306,7 @@ class SubsetMaker(object):
             return X, y
         else:
             X = self.feature_selector.transform(X)
-            return X, y
+            return X, y, s
 
     def pca_subset(self, X, y, action='features', split='train'):
         if split not in ["train", "val", "test"]:
@@ -305,7 +319,7 @@ class SubsetMaker(object):
             print(f"Done fitting pca feature selector in {round(time.time() - timer, 1)} seconds")
         else:
             X = self.feature_selector.transform(X)
-        return X, y
+        return X, y, s
 
     def K_means_sketch(self, X, y, split='train', fit_first_only=False, rand_seed=0, first_only_num = 1000):
         if split not in ["train", "val", "test"]:
@@ -349,6 +363,7 @@ class SubsetMaker(object):
         self,
         X,
         y,
+        s,
         split="train",
         seed=0,
     ):
@@ -370,15 +385,15 @@ class SubsetMaker(object):
                 f"making {self.subset_features}-sized subset of {X.shape[1]} features ..."
             )
             if self.subset_features_method == "random":
-                X, y = self.random_subset(X, y, action=["features"])
+                X, y, s = self.random_subset(X, y, s, action=["features"])
             elif self.subset_features_method == "first":
-                X, y = self.first_subset(X, y, action=["features"])
+                X, y, s = self.first_subset(X, y, s, action=["features"])
             elif self.subset_features_method == "mutual_information":
-                X, y = self.mutual_information_subset(
-                    X, y, action="features", split=split
+                X, y, s = self.mutual_information_subset(
+                    X, y, s, action="features", split=split
                 )
             elif self.subset_features_method == "pca":
-                X, y = self.pca_subset(X, y, action='features', split=split)                
+                X, y, s = self.pca_subset(X, y, s, action='features', split=split)
             else:
                 raise ValueError(
                     f"subset_features_method not recognized: {self.subset_features_method}"
@@ -387,20 +402,20 @@ class SubsetMaker(object):
             print(f"making {self.subset_rows}-sized subset of {X.shape[0]} rows ...")
 
             if self.subset_rows_method == "random":
-                X, y = self.random_subset(X, y, action=["rows"])
+                X, y, s = self.random_subset(X, y, s, action=["rows"])
             elif self.subset_rows_method == "first":
-                X, y = self.first_subset(X, y, action=["rows"])
+                X, y, s = self.first_subset(X, y, s, action=["rows"])
             elif self.subset_rows_method == "kmeans":
-                X, y = self.K_means_sketch(X, y, split=split, fit_first_only=False, rand_seed=0)
+                X, y, s = self.K_means_sketch(X, y, s, split=split, fit_first_only=False, rand_seed=0)
             elif self.subset_rows_method == "coreset":
-                X, y = self.coreset_sketch(X, y, split=split, rand_seed=0)
+                X, y, s = self.coreset_sketch(X, y, s, split=split, rand_seed=0)
             else:
                 raise ValueError(
                     f"subset_rows_method not recognized: {self.subset_rows_method}"
                 )
 
 
-        return X, y
+        return X, y, s
 
 
 def process_data(
@@ -428,9 +443,9 @@ def process_data(
     assert num_mask.sum() + len(dataset.cat_idx) == dataset.X.shape[1]
 
 
-    X_train, y_train = dataset.X[train_index], dataset.y[train_index]
-    X_val, y_val = dataset.X[val_index], dataset.y[val_index]
-    X_test, y_test = dataset.X[test_index], dataset.y[test_index]
+    X_train, y_train, s_train = dataset.X[train_index], dataset.y[train_index], dataset.s[train_index]
+    X_val, y_val, s_val = dataset.X[val_index], dataset.y[val_index], dataset.s[val_index]
+    X_test, y_test, s_test = dataset.X[test_index], dataset.y[test_index], dataset.s[test_index]
 
     # Impute numerical features
     if impute:
@@ -512,29 +527,32 @@ def process_data(
                 args.subset_features_method,
                 args.subset_rows_method,
             )
-        X_train, y_train = dataset.ssm.make_subset(
+        X_train, y_train, s_train = dataset.ssm.make_subset(
             X_train,
             y_train,
+            s_train,
             split="train",
             seed=args.rand_seed,
         )
         if args.subset_features < args.num_features:
-            X_val, y_val = dataset.ssm.make_subset(
+            X_val, y_val, s_val = dataset.ssm.make_subset(
                 X_val,
                 y_val,
+                s_val,
                 split="val",
                 seed=args.rand_seed,
             )
-            X_test, y_test = dataset.ssm.make_subset(
+            X_test, y_test, s_test = dataset.ssm.make_subset(
                 X_test,
                 y_test,
+                s_test,
                 split="test",
                 seed=args.rand_seed,
             )
     return {
-        "data_train": (X_train, y_train),
-        "data_val": (X_val, y_val),
-        "data_test": (X_test, y_test),
+        "data_train": (X_train, y_train, s_train),
+        "data_val": (X_val, y_val, s_val),
+        "data_test": (X_test, y_test, s_test),
     }
 
 import numpy as np
@@ -604,7 +622,7 @@ class TabDS(Dataset):
         eval_xs = eval_xs.squeeze(1)
         return eval_xs
 
-    def __init__(self, X, Y, num_features, pad_features, aggregate_k_gradients=1, do_preprocess=False, preprocess_type='none'):
+    def __init__(self, X, Y, S, num_features, pad_features, aggregate_k_gradients=1, do_preprocess=False, preprocess_type='none'):
         #convert to tensor
         # choices = ['power_all', 'none']
         #pick random choice
@@ -613,22 +631,24 @@ class TabDS(Dataset):
         if do_preprocess:
             self.X = self.preprocess_input(torch.from_numpy(X.copy().astype(np.float32)), preprocess_type)
         self.y_float = torch.from_numpy(Y.copy().astype(np.float32))
+        self.s_float = torch.from_numpy(S.copy().astype(np.float32))
         if self.X.shape[1] < num_features and pad_features:
             # pad with zero features
             self.X = torch.cat([self.X, torch.zeros(self.X.shape[0], num_features - self.X.shape[1])], dim=1)
         self.y = torch.from_numpy(Y.copy().astype(np.int64))
+        self.s = torch.from_numpy(S.copy().astype(np.int64))
         # if len(self.X[0]) % aggregate_k_gradients != 0:
         #     # trim to multiple of aggregate_k_gradients
         #     self.y = self.y[:-(len(self.y) % aggregate_k_gradients)]
         #     self.X = self.X[:len(self.y), :]
-        print(f"TabDS: X.shape = {self.X.shape}, y.shape = {self.y.shape}")
+        print(f"TabDS: X.shape = {self.X.shape}, y.shape = {self.y.shape}, s.shape = {self.s.shape}")
 
     def __len__(self):
         return len(self.y)
 
     def __getitem__(self, idx):
         #(X,y) data, y target, single_eval_pos
-        return tuple([self.X[idx], self.y_float[idx]]), self.y[idx], torch.tensor([])
+        return tuple([self.X[idx], self.y_float[idx]]), self.y[idx], self.s[idx], torch.tensor([])
 
 from torch.utils.data import DataLoader
 

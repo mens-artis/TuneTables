@@ -86,7 +86,7 @@ def objective(trial):
     config['tuned_prompt_size'] = 1000
     config['num_eval_fitting_samples'] = 1000
     config['split'] = 0
-    config['data_path'] = "/home/benfeuer/TabPFN-pt/tabpfn/data/openml__airlines__189354"
+    config['data_path'] = "/cmlscratch/vcherepa//TabPFN-pt/tabpfn/data/openml__airlines__189354"
     config['concat_method'] = ""
 
     prior_type = "real"
@@ -96,7 +96,7 @@ def objective(trial):
         #TODO: check this
         config['prior_type'], config['differentiable'], config['flexible'] = 'real', True, False
 
-    resume = "/home/benfeuer/TabPFN-pt/tabpfn/models_diff/prior_diff_real_checkpoint_n_0_epoch_42.cpkt"
+    resume = "/cmlscratch/vcherepa//TabPFN-pt/tabpfn/models_diff/prior_diff_real_checkpoint_n_0_epoch_42.cpkt"
     if resume is not None:
         model_state, optimizer_state_load, config_sample_load = torch.load(resume, map_location='cpu')
         module_prefix = 'module.'

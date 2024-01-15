@@ -244,6 +244,7 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
         from priors.real import TabularDataset
         from priors.real import process_data
         dataset = TabularDataset.read(Path(config['data_path']).resolve())
+        print('dataset', dataset)
         prior_hyperparameters = {}
         use_style = False
 
@@ -312,6 +313,7 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
     epochs = 0 if not should_train else config['epochs']
 
     args = argparse.Namespace(**config)
+    print("args", args)
 
     if config['prior_type'] == 'real':
         dataset_built = False
@@ -334,9 +336,10 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
                 one_hot_encode=False,
                 args=args,
             )
-            X_train, y_train = processed_data["data_train"]
-            X_val, y_val = processed_data["data_val"]
-            X_test, y_test = processed_data["data_test"]
+            print("processed_data", processed_data)
+            X_train, y_train, s_train = processed_data["data_train"]
+            X_val, y_val, s_val = processed_data["data_val"]
+            X_test, y_test, s_test = processed_data["data_test"]
             n_features = X_train.shape[1]
             n_samples = X_train.shape[0]
             config['num_classes'] = len(set(y_train))
@@ -344,7 +347,7 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
             if config['bptt'] > n_samples:
                 print(f"WARNING: bptt {config['bptt']} is larger than the number of samples in the dataset, {n_samples}. Setting bptt below {n_samples}")
                 config['bptt'] = n_samples - 1
-            dataloader = [[X_train, y_train], [X_val, y_val], [X_test, y_test]]
+            dataloader = [[X_train, y_train, s_train], [X_val, y_val, s_val], [X_test, y_test, s_test]]
             dataset_built = True
             break
         if not dataset_built:

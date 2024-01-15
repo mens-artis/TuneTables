@@ -404,6 +404,7 @@ def get_wandb_api_key(api_key_file="./config/wandb_api_key.txt"):
     except KeyError:
         with open(api_key_file, "r") as f:
             key = f.read()
+            print(key)
         return key.strip()
     
 def wandb_init(config, model_string):
@@ -411,5 +412,5 @@ def wandb_init(config, model_string):
     simple_config = make_serializable(config)
     if simple_config['state_dict'] is not None:
         simple_config['state_dict'] = 'omitted'
-    wandb.init(config=simple_config, name=model_string, group=config['wandb_group'],
-            project=config['wandb_project'], entity=config['wandb_entity'])
+    wandb.init(config=simple_config, name=model_string,
+            project=config['wandb_project'])

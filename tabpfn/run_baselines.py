@@ -223,8 +223,8 @@ def run_eval(dataset_name, base_path):
 if __name__ == '__main__':
     # Parse arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset_path', type=str, default='/home/benfeuer/TabPFN-pt/tabpfn/data')
-    parser.add_argument('--datasets', type=str, default='/home/benfeuer/TabPFN-pt/tabpfn/metadata/subset.txt', help='Path to datasets text file')
+    parser.add_argument('--dataset_path', type=str, default='/cmlscratch/vcherepa//TabPFN-pt/tabpfn/data')
+    parser.add_argument('--datasets', type=str, default='/cmlscratch/vcherepa//TabPFN-pt/tabpfn/metadata/subset.txt', help='Path to datasets text file')
 
     args = parser.parse_args()
 

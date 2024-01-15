@@ -7,9 +7,9 @@ import shutil
 from pathlib import Path
 
 parser = argparse.ArgumentParser(description='Run TabPFN')
-parser.add_argument('--base_path', type=str, default='/home/benfeuer/TabPFN-pt/tabpfn/data', help='Path to TabPFN-pt dataset directory')
-parser.add_argument('--datasets', type=str, default='/home/benfeuer/TabPFN-pt/tabpfn/metadata/subset.txt', help='Path to datasets text file')
-parser.add_argument('--tasks', type=str, default='/home/benfeuer/TabPFN-pt/tabpfn/metadata/subset_tasks.txt', help='Tasks to run')
+parser.add_argument('--base_path', type=str, default='/cmlscratch/vcherepa/TabPFN-pt/tabpfn/data', help='Path to TabPFN-pt dataset directory')
+parser.add_argument('--datasets', type=str, default='/cmlscratch/vcherepa/TabPFN-pt/tabpfn/metadata/subset_datasets.txt', help='Path to datasets text file')
+parser.add_argument('--tasks', type=str, default='/cmlscratch/vcherepa/TabPFN-pt/tabpfn/metadata/subset_tasks.txt', help='Tasks to run')
 parser.add_argument('--bptt', type=int, default=-1, help='bptt batch size')
 parser.add_argument('--splits', nargs='+', type=int, default=[0], help='Splits to run')
 parser.add_argument('--shuffle_every_epoch', action='store_true', help='Whether to shuffle the order of the data every epoch (can help when bptt is large).')

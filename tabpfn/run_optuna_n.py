@@ -24,7 +24,7 @@ def objective(trial):
             trial.set_user_attr(k, v)
     # config['bptt'] = trial.suggest_int('bptt', 128, 8192, log=True)
     config['lr'] = trial.suggest_float('lr', .0001, .3)
-    config['aggregate_k_gradients'] = trial.suggest_int('aggregate_k_gradients', 1, 4)
+    #config['aggregate_k_gradients'] = trial.suggest_int('aggregate_k_gradients', 1, 1)
     config['feature_subset_method'] = trial.suggest_categorical('feature_subset_method', ['pca', 'mutual_information', 'random'])
     config['preprocess_type'] = trial.suggest_categorical('preprocess_type', ['none', 'power_all', 'quantile_all', 'robust_all'])
     config['early_stopping'] = trial.suggest_int('early_stopping', 2, 6)
@@ -48,17 +48,30 @@ def objective(trial):
     if config['wandb_log']:
         wandb.finish()
 
-    return results_dict[args.optuna_objective]
+    print(results_dict)
+    return results_dict['Val_Accuracy'], results_dict['Val_Demographic parity']
 
 
 if __name__ == '__main__':
     sampler = optuna.samplers.TPESampler(seed=13579)  # Make the sampler behave in a deterministic way.
-    study = optuna.create_study(direction='maximize', sampler=sampler)
-    study.optimize(objective, n_trials=30)
+    study = optuna.create_study(directions=['maximize', 'minimize'], sampler=sampler)
+    study.optimize(objective, n_trials=10)
     # Print best trial
-    trial = study.best_trial
+    trials = study.best_trials
     current_time = '_' + datetime.now().strftime("%m_%d_%Y_%H_%M_%S")    
     # Save study results
+
+    # trial_with_highest_accuracy = max(study.best_trials, key=lambda t: t.values[0])
+    # print(f"Trial with highest accuracy: ")
+    # print(f"\tnumber: {trial_with_highest_accuracy.number}")
+    # print(f"\tparams: {trial_with_highest_accuracy.params}")
+    # print(f"\tvalues: {trial_with_highest_accuracy.values}")
+    #
+    # trial_with_highest_fairness = max(study.best_trials, key=lambda t: t.values[1])
+    # print(f"Trial with highest accuracy: ")
+    # print(f"\tnumber: {trial_with_highest_fairness.number}")
+    # print(f"\tparams: {trial_with_highest_fairness.params}")
+    # print(f"\tvalues: {trial_with_highest_fairness.values}")
 
     res_dict = study.best_params
     res_dict['best_value'] = trial.value

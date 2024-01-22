@@ -1,1 +1,4 @@
 openml__adult-census__3953
+openml__SpeedDating__146607
+openml__credit-g__31
+openml__arrhythmia__5

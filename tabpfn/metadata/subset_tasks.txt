@@ -1,1 +1,1 @@
-pt100-uniform
+pt1000-uniform

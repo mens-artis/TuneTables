@@ -182,7 +182,6 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
             test_ds, batch_size=min(128, y_test.shape[0] // 2), shuffle=False, num_workers=1,
         )
         # Fix the prior data TabPFN will use for fitting when including real data points
-        print(dl)
         for _, (td, _, _, _) in enumerate(dl):
             data_for_fitting = td
             break
@@ -549,7 +548,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                         losses = losses.view(*output.shape[0:2])
 
                         loss, nan_share = utils.torch_nanmean(losses.mean(0), return_nanshare=True)
-                        loss = loss+reg
+                        loss = 0.5*loss + 0.5*reg
                         loss = loss / aggregate_k_gradients
 
 

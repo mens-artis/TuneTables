@@ -244,7 +244,6 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
         from priors.real import TabularDataset
         from priors.real import process_data
         dataset = TabularDataset.read(Path(config['data_path']).resolve())
-        print('dataset', dataset)
         prior_hyperparameters = {}
         use_style = False
 
@@ -336,7 +335,6 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
                 one_hot_encode=False,
                 args=args,
             )
-            print("processed_data", processed_data)
             X_train, y_train, s_train = processed_data["data_train"]
             X_val, y_val, s_val = processed_data["data_val"]
             X_test, y_test, s_test = processed_data["data_test"]

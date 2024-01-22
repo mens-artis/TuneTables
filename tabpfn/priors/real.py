@@ -184,7 +184,6 @@ class TabularDataset(object):
             kwargs = json.load(f)
 
         kwargs["X"], kwargs["y"], kwargs["s"], kwargs["split_indeces"] = X, y, s, split_indeces
-        print("kwargs", kwargs)
         return cls(**kwargs)
 
     def write(self, p: Path, overwrite=False) -> None:
@@ -308,7 +307,7 @@ class SubsetMaker(object):
             X = self.feature_selector.transform(X)
             return X, y, s
 
-    def pca_subset(self, X, y, action='features', split='train'):
+    def pca_subset(self, X, y, s, action='features', split='train'):
         if split not in ["train", "val", "test"]:
             raise ValueError("split must be 'train', 'val', or 'test'")        
         if split == "train":

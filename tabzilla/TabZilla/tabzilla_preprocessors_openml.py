@@ -16,6 +16,17 @@ openml_tasks = [
         "openml_task_id": 3021,
         "drop_features": ["TBG"],
     },
+
+    {
+        "openml_task_id": 361024,
+        "drop_features": [],
+
+    },
+
+    # {
+    #     "openml_task_id": 190424,
+    #     "target_type": "binary",  # Does not need to be explicitly specified, but can be
+    # }
     # These datasets have been added to openml_easy_import_list.txt, but are provided here as a blueprint
     # for addition of other datasets
     # {
@@ -34,7 +45,9 @@ sens_attr_dict = {3953: "sex:",
                   50: "sex",
                   146607: "samerace",
                   31: "age",
-                  5: "sex"}
+                  5: "sex",
+                  190424: "sex",
+                  361020: "gender"}
 
 with open(easy_import_task_file, "r") as f:
     for line in f:

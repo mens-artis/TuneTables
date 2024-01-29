@@ -1,4 +1,5 @@
 openml__adult-census__3953
 openml__SpeedDating__146607
 openml__credit-g__31
-openml__arrhythmia__5
+openml__national-longitudinal-survey-binary__361020
+openml__compas-two-years__190424

@@ -49,29 +49,17 @@ def objective(trial):
         wandb.finish()
 
     print(results_dict)
-    return results_dict['Val_Accuracy'], results_dict['Val_Demographic parity']
+    return results_dict['Val_Accuracy']
 
 
 if __name__ == '__main__':
     sampler = optuna.samplers.TPESampler(seed=13579)  # Make the sampler behave in a deterministic way.
-    study = optuna.create_study(directions=['maximize', 'minimize'], sampler=sampler)
-    study.optimize(objective, n_trials=10)
+    study = optuna.create_study(direction='maximize', sampler=sampler)
+    study.optimize(objective, n_trials=30)
     # Print best trial
-    trials = study.best_trials
+    trial = study.best_trial
     current_time = '_' + datetime.now().strftime("%m_%d_%Y_%H_%M_%S")    
     # Save study results
-
-    # trial_with_highest_accuracy = max(study.best_trials, key=lambda t: t.values[0])
-    # print(f"Trial with highest accuracy: ")
-    # print(f"\tnumber: {trial_with_highest_accuracy.number}")
-    # print(f"\tparams: {trial_with_highest_accuracy.params}")
-    # print(f"\tvalues: {trial_with_highest_accuracy.values}")
-    #
-    # trial_with_highest_fairness = max(study.best_trials, key=lambda t: t.values[1])
-    # print(f"Trial with highest accuracy: ")
-    # print(f"\tnumber: {trial_with_highest_fairness.number}")
-    # print(f"\tparams: {trial_with_highest_fairness.params}")
-    # print(f"\tvalues: {trial_with_highest_fairness.values}")
 
     res_dict = study.best_params
     res_dict['best_value'] = trial.value

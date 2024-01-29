@@ -302,7 +302,7 @@ class SubsetMaker(object):
                 )
             else:
                 X = self.feature_selector.transform(X)
-            return X, y
+            return X, y, s
         else:
             X = self.feature_selector.transform(X)
             return X, y, s

@@ -4,7 +4,7 @@ import copy
 base_dict = {
     'prior_type' : 'real',
     'pad_features' : '',
-    'resume' : '/cmlscratch/vcherepa//TabPFN-pt/tabpfn/models_diff/prior_diff_real_checkpoint_n_0_epoch_42.cpkt',
+    'resume' : '/cmlscratch/vcherepa/TabPFN-pt/tabpfn/models_diff/prior_diff_real_checkpoint_n_0_epoch_42.cpkt',
     'epochs' : 31,
     'validation_period' : 3,
     'save_every_k_epochs' : 15,
@@ -98,6 +98,13 @@ pt100_powerall_dict['preprocess_type'] = 'power_all'
 #Prompt tuning with 1000 prompts
 pt1000_dict = copy.deepcopy(pt10_dict)
 pt1000_dict['tuned_prompt_size'] = 1000
+# #
+# pt1000_dict["lr"]=0.19404061382273632
+# pt1000_dict["feature_subset_method"]="mutual_information"
+# pt1000_dict["preprocess_type"] = "none"
+# pt1000_dict["early_stopping"] = 3
+# pt1000_dict["tuned_prompt_label_balance"] = "proportional"
+
 pt1000_short_dict = copy.deepcopy(pt1000_dict)
 pt1000_short_dict['epochs'] = 7
 pt1000_short_dict['save_every_k_epochs'] = 12

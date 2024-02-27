@@ -1,1 +1,2 @@
-pt1000
+pt1000-uniform
+zs-32

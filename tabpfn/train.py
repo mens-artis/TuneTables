@@ -54,7 +54,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
           load_weights_from_this_state_dict=None, validation_period=10, single_eval_pos_gen=None, bptt_extra_samples=None, gpu_device='cuda:0',
           aggregate_k_gradients=1, verbose=True, style_encoder_generator=None, epoch_callback=None,
           initializer=None, initialize_with_model=None, train_mixed_precision=False, efficient_eval_masking=True, 
-          boosting=False, boosting_lr=1e-3, boosting_n_iters=10, rand_init_ensemble=False, do_concat="", **model_extra_args
+          boosting=False, boosting_lr=1e-3, boosting_n_iters=10, rand_init_ensemble=False, do_concat="", mitigate_bias=True, fair_alpha=0.5, **model_extra_args
           ):
     seed_all(extra_prior_kwargs_dict.get('rand_seed'))
     device = gpu_device if torch.cuda.is_available() else 'cpu:0'
@@ -205,7 +205,7 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
 
         if extra_prior_kwargs_dict.get('zs_eval_ensemble', 0) > 0:
 
-            def tpc_data_eval(cl=1000, X=None, y=None, X_val=None, y_val=None, ens_size=1):
+            def tpc_data_eval(cl=1000, X=None, y=None, X_val=None, y_val=None, s_val=None, ens_size=1):
                     print("Num classes: ", num_classes)
                     from scripts.transformer_prediction_interface import TabPFNClassifier
                     start_time = time.time()
@@ -240,6 +240,8 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                     results['Log_Loss'] = np.round(log_loss(targets, outputs, labels=np.arange(num_classes)), 3).item()
                     results['F1_Weighted'] = np.round(f1_score(targets, predictions, average='weighted'), 3).item()
                     results['F1_Macro'] = np.round(f1_score(targets, predictions, average='macro'), 3).item()
+                    print(targets.shape, predictions.shape, s_val.shape)
+                    results['Demographic parity'] = np.round(demographic_parity_difference(targets,predictions,sensitive_features=s_val), 3).item()
                     try:
                         if num_classes == 2:
                             results['ROC_AUC'] = np.round(roc_auc_score(targets, outputs[:, 1], labels=np.arange(num_classes)), 3).item()
@@ -253,9 +255,9 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                     warnings.filterwarnings("default")
                     return results
             res_dict = dict()
-            val_results = tpc_data_eval(cl=bptt, X=data_for_fitting[0], y=data_for_fitting[1], X_val=X_val, y_val=y_val, ens_size=extra_prior_kwargs_dict.get('zs_eval_ensemble', 0))
+            val_results = tpc_data_eval(cl=bptt, X=data_for_fitting[0], y=data_for_fitting[1], X_val=X_val, y_val=y_val, s_val=s_val, ens_size=extra_prior_kwargs_dict.get('zs_eval_ensemble', 0))
             res_dict = dict(res_dict, **{"Val_" + k : v for k, v in val_results.items()})
-            test_results = tpc_data_eval(cl=bptt, X=data_for_fitting[0], y=data_for_fitting[1], X_val=X_test, y_val=y_test, ens_size=extra_prior_kwargs_dict.get('zs_eval_ensemble', 0))
+            test_results = tpc_data_eval(cl=bptt, X=data_for_fitting[0], y=data_for_fitting[1], X_val=X_test, y_val=y_test, s_val=s_test, ens_size=extra_prior_kwargs_dict.get('zs_eval_ensemble', 0))
             res_dict = dict(res_dict, **{"Test_" + k : v for k, v in test_results.items()})
             print("Results: ", res_dict)
             with open(os.path.join(extra_prior_kwargs_dict.get('save_path'), 'zs_eval_ensemble.json'), 'w') as f:
@@ -543,13 +545,13 @@ def train(priordataloader_class, criterion, encoder_generator, emsize=200, nhid=
                     else:
                         if len(output.shape) == 2:
                             output = output.unsqueeze(1)
-                        # print("Losses shape: ", losses.shape)
-                        # print("Outputs shape: ", output.shape)
                         losses = losses.view(*output.shape[0:2])
 
                         loss, nan_share = utils.torch_nanmean(losses.mean(0), return_nanshare=True)
-                        loss = 0.5*loss + 0.5*reg
-                        loss = loss / aggregate_k_gradients
+                    if mitigate_bias:
+                        loss = (1-fair_alpha)*loss + fair_alpha*reg
+
+                    loss = loss / aggregate_k_gradients
 
 
                 if scaler: loss = scaler.scale(loss)

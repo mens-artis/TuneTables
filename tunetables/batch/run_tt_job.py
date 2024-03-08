@@ -133,25 +133,40 @@ def main_f(args):
         #CASE 2: small datasets
         elif n_samples <= MAX_SAMPLES:
             if skip_fs:
-                tt_tasks = [
-                    'zs-random-32',
-                    # 'zs-preproc-random-32',
-                    'pt10-short-lowlr-prop',
-                    'pt10-uniform-kl-nopp',
-                    'pt10-uniform-kl-nopp-prop',
-                ]
+                if args.privacy_sweep:
+                    tt_tasks = [
+                        "pt10-uniform",
+                        "pt10-uniform-nopp-prop",
+                        "pt10-uniform-kl-nopp",
+                        "pt10-uniform-kl-nopp-prop",
+                    ]
+                else:
+                    tt_tasks = [
+                        'zs-random-32',
+                        # 'zs-preproc-random-32',
+                        'pt10-short-lowlr-prop',
+                        'pt10-uniform-kl-nopp',
+                        'pt10-uniform-kl-nopp-prop',
+                    ]
                 # if n_samples > LOW_MAX_SAMPLES:
                 #     tt_tasks.append('pt1000-10ens-randinit-avg-top1-unif-reseed-stopearly')
             else:
                 tt_tasks = []
-                for fsm in feat_sel_method:
-                    tt_tasks.append(f'zs-{fsm}-32')
-                    # tt_tasks.append(f'zs-preproc-{fsm}-32')
-                    tt_tasks.append(f'pt10-short-lowlr-prop-{fsm}')
-                    tt_tasks.append(f'pt10-uniform-kl-nopp-{fsm}')
-                    tt_tasks.append(f'pt10-uniform-kl-nopp-prop-{fsm}')
-                    # if n_samples > LOW_MAX_SAMPLES:
-                    #     tt_tasks.append(f'pt1000-10ens-randinit-avg-top1-unif-reseed-{fsm}-stopearly')
+                if args.privacy_sweep:
+                    for fsm in feat_sel_method:
+                        tt_tasks.append(f'pt10-uniform-{fsm}')
+                        tt_tasks.append(f'pt10-uniform-nopp-prop-{fsm}')
+                        tt_tasks.append(f'pt10-uniform-kl-nopp-{fsm}')
+                        tt_tasks.append(f'pt10-uniform-kl-nopp-prop-{fsm}')
+                else:
+                    for fsm in feat_sel_method:
+                        tt_tasks.append(f'zs-{fsm}-32')
+                        # tt_tasks.append(f'zs-preproc-{fsm}-32')
+                        tt_tasks.append(f'pt10-short-lowlr-prop-{fsm}')
+                        tt_tasks.append(f'pt10-uniform-kl-nopp-{fsm}')
+                        tt_tasks.append(f'pt10-uniform-kl-nopp-prop-{fsm}')
+                        # if n_samples > LOW_MAX_SAMPLES:
+                        #     tt_tasks.append(f'pt1000-10ens-randinit-avg-top1-unif-reseed-{fsm}-stopearly')
         # CASE 3: large-sample datasets
         elif n_samples > UPPER_CUTOFF:
             if skip_fs:
@@ -192,6 +207,8 @@ def main_f(args):
         #wandb logging for tunetables meta-optimization
         if do_wandb:
             model_string = task_str = "tunetables" + '_split_' + str(split)
+            if args.privacy_sweep:
+                model_string += '_privacy_' + '_edg_' + str(args.edg).replace(" ", "_")
             wandb_group = dataset.strip() + "_" + task_str
             config = dict()
             config['wandb_group'] = wandb_group
@@ -256,6 +273,8 @@ def main_f(args):
         task_str = task
         if args.run_optuna:
             task_str += '_optuna'
+        if args.privacy_sweep:
+            task_str += '_privacy'
         if args.bptt > -1:
             task_str += '_bptt_' + str(args.bptt)
         if args.shuffle_every_epoch:
@@ -332,8 +351,15 @@ def main_f(args):
                 elif args.wandb_log:
                     command = command + ["--wandb_project", "tabpfn-pt-optuna"]
         if args.bptt > -1:
-            command.append("--bptt")
-            command.append(str(args.bptt))     
+            if "--bptt" in command:
+                command[command.index("--bptt") + 1] = str(args.bptt)
+            else:
+                command.append("--bptt")
+                command.append(str(args.bptt))
+        if args.privacy_sweep:
+            command.append("--private_model")
+            command.append("--edg")
+            command.append(args.edg)
         if args.shuffle_every_epoch:
             command.append("--shuffle_every_epoch")
         if args.verbose:
@@ -392,6 +418,11 @@ def main_f(args):
 
     gcp_txt = "run_commands=(\n"
 
+    if args.privacy_sweep:
+        edg_vals = [0.01, 0.1, 0.5, 1.0, 5.0]
+    else:
+        edg_vals = [0.0]
+
     for dataset in tqdm(datasets):
         dataset_path = "\"" + os.path.join(args.base_path, dataset.strip()) + '\"'
         #sanitize name
@@ -402,35 +433,37 @@ def main_f(args):
             os.makedirs(log_dir)
         for split in args.splits:
             for task in tasks:
-                if 'tunetables' in task and args.gcp_run:
-                    task_args = [
-                        "--splits", str(split),
-                        "--print_stdout",
-                        "--verbose",
-                    ]
-                    if args.adaptive_bptt:
-                        task_args = task_args + ["--adaptive_bptt"]
-                    if args.bptt > -1:
-                        task_args = task_args + ["--bptt", str(args.bptt)]
-                    if args.epochs > 0:
-                        task_args = task_args + ["--epochs", str(args.epochs)]
-                    if args.validation_period > 0:
-                        task_args = task_args + ["--validation_period", str(args.validation_period)]
-                    if args.wandb_log:
-                        task_args = task_args + [
-                            "--wandb_log",
-                            "--wandb_project", args.wandb_project,
-                            "--wandb_entity", args.wandb_entity,
+                for edgval in edg_vals:
+                    args.edg = str(edgval) + " " + "1e-4" + " " + "1.2"
+                    if 'tunetables' in task and args.gcp_run:
+                        task_args = [
+                            "--splits", str(split),
+                            "--print_stdout",
+                            "--verbose",
                         ]
-                    task_str = task + "_dataset_" + dataset.strip() + "_args_" + " ".join(task_args)
-                    res = None
-                elif 'tunetables' in task:
-                    do_wandb = args.wandb_log
-                    tt_args = copy.deepcopy(args)
-                    tt_args.wandb_log = False
-                    res, task_str = run_tunetables(dataset_path, task, split, log_dir, tt_args, base_cmd, gcp_txt, do_wandb)
-                else:
-                    res, task_str = run_single_job(dataset_path, task, split, log_dir, args, base_cmd, gcp_txt)
+                        if args.adaptive_bptt:
+                            task_args = task_args + ["--adaptive_bptt"]
+                        if args.bptt > -1:
+                            task_args = task_args + ["--bptt", str(args.bptt)]
+                        if args.epochs > 0:
+                            task_args = task_args + ["--epochs", str(args.epochs)]
+                        if args.validation_period > 0:
+                            task_args = task_args + ["--validation_period", str(args.validation_period)]
+                        if args.wandb_log:
+                            task_args = task_args + [
+                                "--wandb_log",
+                                "--wandb_project", args.wandb_project,
+                                "--wandb_entity", args.wandb_entity,
+                            ]
+                        task_str = task + "_dataset_" + dataset.strip() + "_args_" + " ".join(task_args)
+                        res = None
+                    elif 'tunetables' in task:
+                        do_wandb = args.wandb_log
+                        tt_args = copy.deepcopy(args)
+                        tt_args.wandb_log = False
+                        res, task_str = run_tunetables(dataset_path, task, split, log_dir, tt_args, base_cmd, gcp_txt, do_wandb)
+                    else:
+                        res, task_str = run_single_job(dataset_path, task, split, log_dir, args, base_cmd, gcp_txt)
                 wandb_bu = args.wandb_log
                 args = tt_args
                 args.wandb_log = wandb_bu
@@ -480,5 +513,6 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=0, help='Number of epochs to run.')
     parser.add_argument('--validation_period', type=int, default=0, help='Number of epochs between validation runs.')
     parser.add_argument('--seed', type=int, default=135798642, help='Random seed for reproducibility.')
+    parser.add_argument('--privacy_sweep', action='store_true', help='Train with differential privacy.')
     args = parser.parse_args()
     main_f(args)

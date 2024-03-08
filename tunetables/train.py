@@ -1081,7 +1081,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             # stepping with wallclock time based scheduler
             t_sched.step()
 
-        if do_prompt_tuning and not do_kl_loss and isinstance(best_val_embed, torch.Tensor):
+        if do_prompt_tuning and not do_kl_loss and not do_private and isinstance(best_val_embed, torch.Tensor):
             t_model.prefix_embedding.weight = nn.Parameter(best_val_embed.to(device))
             #set requires grad to true
             t_model.prefix_embedding.weight.requires_grad = True

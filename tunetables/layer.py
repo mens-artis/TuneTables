@@ -5,6 +5,11 @@ import torch
 from torch.nn.modules.transformer import _get_activation_fn, Module, Tensor, Optional, MultiheadAttention, Linear, Dropout, LayerNorm
 from torch.utils.checkpoint import checkpoint
 
+try:
+    from opacus.layers.dp_multihead_attention import DPMultiheadAttention
+except ImportError as e:
+    print(e)
+    print("opacus not installed, using standard MultiheadAttention")
 
 class TransformerEncoderLayer(Module):
     r"""TransformerEncoderLayer is made up of self-attn and feedforward network.
@@ -38,11 +43,20 @@ class TransformerEncoderLayer(Module):
 
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1, activation="relu",
                  layer_norm_eps=1e-5, batch_first=False, pre_norm=False,
-                 device=None, dtype=None, recompute_attn=False) -> None:
+                 device=None, dtype=None, recompute_attn=False, private=False) -> None:
         factory_kwargs = {'device': device, 'dtype': dtype}
         super().__init__()
-        self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first,
-                                            **factory_kwargs)
+        self.private = private
+        if self.private:
+            # TODO: opacus Version mismatch, batch_first is not supported, fix later if needed
+            # self.self_attn = DPMultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first,
+            #                                     **factory_kwargs)
+
+            self.self_attn = DPMultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True,
+                                                **factory_kwargs)
+        else:
+            self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first,
+                                                **factory_kwargs)
         # Implementation of Feedforward model
         self.linear1 = Linear(d_model, dim_feedforward, **factory_kwargs)
         self.dropout = Dropout(dropout)
@@ -105,8 +119,20 @@ class TransformerEncoderLayer(Module):
         elif isinstance(src_mask, int):
             assert src_key_padding_mask is None
             single_eval_position = src_mask
-            src_left = self.self_attn(src_[:single_eval_position], src_[:single_eval_position], src_[:single_eval_position])[0]
-            src_right = self.self_attn(src_[single_eval_position:], src_[:single_eval_position], src_[:single_eval_position])[0]
+            if self.private:
+                src_ = src_.view(-1, src.shape[-1])
+                if src_.dim() == 2:
+                    src_ = src_.unsqueeze(0)
+                target_left = src_[:, :single_eval_position, ...]
+                target_right = src_[:, single_eval_position:, ...]
+            else:
+                target_left = src[:single_eval_position]
+                target_right = src[single_eval_position:]
+            src_left = self.self_attn(target_left, target_left, target_left)[0]
+            src_right = self.self_attn(target_right, target_left, target_left)[0]
+            if self.private:
+                src_left = src_left.squeeze(0)
+                src_right = src_right.squeeze(0)
             src2 = torch.cat([src_left, src_right], dim=0)
         else:
             if self.recompute_attn:

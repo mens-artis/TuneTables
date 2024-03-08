@@ -636,11 +636,8 @@ def data_prep(X, y):
     X, y = data_split(X, y, nan_mask)
     return X, y
 
-def shuffle_data(X, y):
-    shuffle_idx = np.random.permutation(X.shape[0])
-    X = X[shuffle_idx]
-    y = y[shuffle_idx]
-    return X, y
+def get_shuffle_index(X):
+    return np.random.permutation(X.shape[0])
 
 def process_data(
     dataset,
@@ -830,7 +827,7 @@ def loop_translate(a, my_dict):
         # print("new_a: ", new_a[:5, ...])
     return new_a
 
-def preprocess_input(eval_xs, preprocess_transform, summerize_after_prep, drop_empty=True):
+def preprocess_input(eval_xs, preprocess_transform, summerize_after_prep, args, is_train=False):
 
     if preprocess_transform != 'none':
         if preprocess_transform == 'power' or preprocess_transform == 'power_all':
@@ -842,10 +839,11 @@ def preprocess_input(eval_xs, preprocess_transform, summerize_after_prep, drop_e
     eval_position = eval_xs.shape[0]
     eval_xs = normalize_data(eval_xs, normalize_positions=eval_position)
 
-    if drop_empty:
+    if is_train:
         # Removing empty features
-        sel = [len(torch.unique(eval_xs[:1000, col])) > 1 for col in range(eval_xs.shape[1])]
-        eval_xs = eval_xs[:, sel]
+        args.sel = [len(torch.unique(eval_xs[:1000, col])) > 1 for col in range(eval_xs.shape[1])]
+    
+    eval_xs = eval_xs[:, args.sel]
 
     warnings.simplefilter('error')
     if preprocess_transform != 'none':

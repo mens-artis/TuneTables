@@ -10,6 +10,9 @@ driver_installer.run
 # datasets
 tunetables/data/*
 
+#old folders
+tabpfn
+
 # results and outfiles
 *.out
 */logs/

@@ -18,6 +18,7 @@ import torch
 
 MAX_CLASSES = 10
 MAX_FEATURES = 100
+LOW_MAX_SAMPLES = 1000
 MAX_SAMPLES = 3000
 
 def is_json_serializable(obj):
@@ -89,7 +90,8 @@ def main_f(args):
             UPPER_CUTOFF = 10000
         elif "tunetables" in task:
             UPPER_CUTOFF = 100000
-            print(f"Using default upper cutoff of 100000 for task {task}")
+        if args.verbose:
+            print(f"Using upper cutoff of {UPPER_CUTOFF} for task {task}")
         args.real_data_qty = MAX_SAMPLES
         metadata_path = Path(dataset_path[1:-1]) / 'metadata.json'
         with open(metadata_path) as f:
@@ -98,33 +100,39 @@ def main_f(args):
         n_features = metadata['num_features']
         n_samples = metadata['num_instances']
         if args.adaptive_bptt:
-            new_bptt = min(max(int(n_samples / 10), 128), 2048)
+            new_bptt = min(max(int(n_samples / 50), 128), 2048)
             if args.verbose:
                 print(f"Adaptive bptt: setting bptt to {new_bptt}")
             args.bptt = new_bptt
         all_res = {}
         all_res_d = {}
+        # if n_features > MAX_FEATURES:
+        #     print("Sweeping feature subselection methods.")
+        #     #NOTE: Other options: zs-pca_white-32, zs-isomap-32, zs-ica-32, zs-random-32, zs-sparse_random_projection-32
+        #     tt_tasks = ['zs-pca-16', 'zs-mutual_information-16']
+        #     for task in tt_tasks:
+        #         try:
+        #             res, _ = run_single_job(dataset_path, task, split, log_dir, args, base_cmd, gcp_txt)
+        #             all_res[task] = res["Val_Accuracy"]
+        #             all_res_d[task] = res
+        #         except:
+        #             pass
+        #     best_task = max(all_res, key=all_res.get)
+        #     feat_sel_method = best_task.split('-')[1]
         if n_features > MAX_FEATURES:
-            print("Sweeping feature subselection methods.")
-            #NOTE: Other options: zs-pca_white-32, zs-isomap-32, zs-ica-32, zs-random-32, zs-sparse_random_projection-32
-            tt_tasks = ['zs-pca-16', 'zs-mutual_information-16']
-            for task in tt_tasks:
-                try:
-                    res, _ = run_single_job(dataset_path, task, split, log_dir, args, base_cmd, gcp_txt)
-                    all_res[task] = res["Val_Accuracy"]
-                    all_res_d[task] = res
-                except:
-                    pass
-            best_task = max(all_res, key=all_res.get)
-            feat_sel_method = best_task.split('-')[1]
+            feat_sel_method = ['pca', 'mutual_information']
+            skip_fs = False
         else:
-            feat_sel_method = ''
+            feat_sel_method = ['']
+            skip_fs = True
         if n_classes > 25:
             raise NotImplementedError("Please add a task to all_tasks for the correct number of classes (modify task pt1000-10ens-randinit-avg-top2-unif-reseed-25cl-long).")
+        #CASE 1: large-class datasets
         if n_classes > MAX_CLASSES and n_classes < 25:
             tt_tasks = [f'pt1000-10ens-randinit-avg-top2-unif-reseed-25cl-long']
+        #CASE 2: small datasets
         elif n_samples <= MAX_SAMPLES:
-            if feat_sel_method == '':
+            if skip_fs:
                 tt_tasks = [
                     'zs-random-32',
                     # 'zs-preproc-random-32',
@@ -132,42 +140,54 @@ def main_f(args):
                     'pt10-uniform-kl-nopp',
                     'pt10-uniform-kl-nopp-prop',
                 ]
+                # if n_samples > LOW_MAX_SAMPLES:
+                #     tt_tasks.append('pt1000-10ens-randinit-avg-top1-unif-reseed-stopearly')
             else:
-                tt_tasks = [f'pt10-short-lowlr-prop-{feat_sel_method}', f'pt10-uniform-kl-nopp-{feat_sel_method}', f'pt10-uniform-kl-nopp-prop-{feat_sel_method}']
+                tt_tasks = []
+                for fsm in feat_sel_method:
+                    tt_tasks.append(f'zs-{fsm}-32')
+                    # tt_tasks.append(f'zs-preproc-{fsm}-32')
+                    tt_tasks.append(f'pt10-short-lowlr-prop-{fsm}')
+                    tt_tasks.append(f'pt10-uniform-kl-nopp-{fsm}')
+                    tt_tasks.append(f'pt10-uniform-kl-nopp-prop-{fsm}')
+                    # if n_samples > LOW_MAX_SAMPLES:
+                    #     tt_tasks.append(f'pt1000-10ens-randinit-avg-top1-unif-reseed-{fsm}-stopearly')
+        # CASE 3: large-sample datasets
         elif n_samples > UPPER_CUTOFF:
-            if feat_sel_method != '':
-                tt_tasks = [
-                    f'pt1000-{feat_sel_method}', 
-                    f'pt1000-sumafter-{feat_sel_method}', 
-                    f'pt1000-uniform-{feat_sel_method}', 
-                    f'pt1000-uniform-sumafter-{feat_sel_method}'
-                ]
-            else:
+            if skip_fs:
                 tt_tasks = [
                     'pt1000', 
                     'pt1000-uniform',
                 ]
-        else:
-            if feat_sel_method != '':
-                tt_tasks = [f'zs-{feat_sel_method}-32',
-                            f'zs-preproc-{feat_sel_method}-32',
-                            f'pt1000-10ens-randinit-avg-top2-unif-reseed-{feat_sel_method}', 
-                            f'pt1000-10ens-randinit-avg-top2-unif-reseed-sumafter-{feat_sel_method}',
-                            f'pt1000-10ens-randinit-avg-top2-reseed-{feat_sel_method}',
-                            f'pt1000-10ens-randinit-avg-top2-reseed-sumafter-{feat_sel_method}',
-                            ]
             else:
+                tt_tasks = []
+                for fsm in feat_sel_method:
+                    # tt_tasks.append(f'zs-preproc-{fsm}-32')
+                    tt_tasks.append(f'pt1000-{fsm}')
+                    tt_tasks.append(f'pt1000-uniform-{fsm}')
+        # CASE 4: other
+        else:
+            if skip_fs:
                 tt_tasks = [
-                            'zs-random-32',
-                            # 'zs-preproc-random-32',
-                            'pt1000-10ens-randinit-avg-top2-unif-reseed',
-                            'pt1000-10ens-randinit-avg-top2-reseed',
-                            ]
+                    'zs-random-32',
+                    # tt_tasks.append(f'zs-preproc-{fsm}-32')
+                    'pt1000-10ens-randinit-avg-top2-unif-reseed-pca',
+                    'pt1000-10ens-randinit-avg-top2-reseed-pca',
+                ]
+            else:
+                tt_tasks = []
+                for fsm in feat_sel_method:
+                    tt_tasks.append(f'zs-{fsm}-32')
+                    # tt_tasks.append(f'zs-preproc-{fsm}-32')
+                    tt_tasks.append(f'pt1000-10ens-randinit-avg-top2-unif-reseed-{fsm}')
+                    tt_tasks.append(f'pt1000-10ens-randinit-avg-top2-unif-reseed-sumafter-{fsm}')
+                    tt_tasks.append(f'pt1000-10ens-randinit-avg-top2-reseed-{fsm}')
+                    tt_tasks.append(f'pt1000-10ens-randinit-avg-top2-reseed-sumafter-{fsm}')
         if args.verbose:
             print("For dataset", dataset_path, "split", split, "with", n_classes, "classes, and", n_features, "features, and", n_samples, "samples, running tasks:", tt_tasks)
         
         
-        # args.bptt_backup = args.bptt
+        args.bptt_backup = args.bptt
         
         #wandb logging for tunetables meta-optimization
         if do_wandb:
@@ -193,6 +213,11 @@ def main_f(args):
         base_seed = args.seed
         i = 0
         for task in tt_tasks:
+            #NOTE: Non-uniform bptt should be set to default for TT
+            if 'unif' not in task:
+                args.bptt = -1
+            else:
+                args.bptt = args.bptt_backup
             #Reseed ZS tasks to vary features and data
             args.seed = base_seed
             if all_res_d.get(task, None) is not None:
@@ -406,6 +431,9 @@ def main_f(args):
                     res, task_str = run_tunetables(dataset_path, task, split, log_dir, tt_args, base_cmd, gcp_txt, do_wandb)
                 else:
                     res, task_str = run_single_job(dataset_path, task, split, log_dir, args, base_cmd, gcp_txt)
+                wandb_bu = args.wandb_log
+                args = tt_args
+                args.wandb_log = wandb_bu
                 if args.gcp_run:
                     gcp_txt += "\"" + task_str + "\"" "\n"
                     if res:

@@ -68,7 +68,7 @@ pt10_short_dict['early_stopping'] = 7
 pt10_short_dict['validation_period'] = 3
 pt10_short_dict['lr'] = 0.2
 pt10_short_lowlr_dict = copy.deepcopy(pt10_short_dict)
-pt10_short_lowlr_dict['lr'] = 0.05
+pt10_short_lowlr_dict['lr'] = 0.03
 pt10_short_lowlr_prop_dict = copy.deepcopy(pt10_short_lowlr_dict)
 pt10_short_lowlr_prop_dict['tuned_prompt_label_balance'] = 'proportional'
 pt10_short_lowlr_prop_pca_dict = copy.deepcopy(pt10_short_lowlr_prop_dict)
@@ -371,6 +371,8 @@ ens3_pt100_randinit_avg_top2_reseed_unif_dict['keep_topk_ensemble'] = 2
 
 ens_randinit_avg_top1_unif_reseed_stopearly_dict = copy.deepcopy(ens_randinit_avg_top2_unif_reseed_stopearly_dict)
 ens_randinit_avg_top1_unif_reseed_stopearly_dict['keep_topk_ensemble'] = 1
+ens_randinit_avg_top1_unif_reseed_stopearly_pca_dict = copy.deepcopy(ens_randinit_avg_top1_unif_reseed_stopearly_dict)
+ens_randinit_avg_top1_unif_reseed_stopearly_pca_dict['subset_features_method'] = 'pca'
 ens_randinit_avg_top1_unif_reseed_stopearly_mutinf_dict = copy.deepcopy(ens_randinit_avg_top1_unif_reseed_stopearly_dict)
 ens_randinit_avg_top1_unif_reseed_stopearly_mutinf_dict['subset_features_method'] = 'mutual_information'
 ens_randinit_avg_top1_unif_reseed_highlr_short_dict = copy.deepcopy(ens_randinit_avg_top3_unif_reseed_highlr_short_dict)
@@ -512,6 +514,7 @@ all_tasks = {
     'pt1000-10ens-randinit-avg-top3-unif-reseed-sumafter-pca-highlr-short' : ens_randinit_avg_top3_unif_reseed_sumafter_pca_highlr_short,
     'pt1000-10ens-randinit-avg-top1-unif-reseed-stopearly' : ens_randinit_avg_top1_unif_reseed_stopearly_dict,
     'pt1000-10ens-randinit-avg-top2-unif-reseed-stopearly' : ens_randinit_avg_top2_unif_reseed_stopearly_dict,
+    'pt1000-10ens-randinit-avg-top1-unif-reseed-pca-stopearly' : ens_randinit_avg_top1_unif_reseed_stopearly_pca_dict,
     'pt1000-10ens-randinit-avg-top1-unif-reseed-mutual_information-stopearly' : ens_randinit_avg_top1_unif_reseed_stopearly_mutinf_dict,
     'pt1000-10ens-randinit-avg-top1-unif-reseed-highlr-short' : ens_randinit_avg_top1_unif_reseed_highlr_short_dict,
     'pt1000-10ens-randinit-avg-top1-unif-reseed-highlr-short-powerall' : ens_randinit_avg_top1_unif_reseed_highlr_short_powerall_dict,

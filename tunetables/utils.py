@@ -13,6 +13,25 @@ import numpy as np
 
 import wandb
 
+def load_and_combine_attention_weights(state_dict, num_layers):
+
+    for k in range(num_layers):
+        q_weight, k_weight, v_weight = state_dict[f"transformer_encoder.layers.{k}.self_attn.in_proj_weight"].chunk(3, dim=0)
+        q_bias, k_bias, v_bias = state_dict[f"transformer_encoder.layers.{k}.self_attn.in_proj_bias"].chunk(3, dim=0)
+
+        state_dict[f"transformer_encoder.layers.{k}.self_attn.qlinear.weight"] = q_weight
+        state_dict[f"transformer_encoder.layers.{k}.self_attn.klinear.weight"] = k_weight
+        state_dict[f"transformer_encoder.layers.{k}.self_attn.vlinear.weight"] = v_weight
+        state_dict[f"transformer_encoder.layers.{k}.self_attn.qlinear.bias"] = q_bias
+        state_dict[f"transformer_encoder.layers.{k}.self_attn.klinear.bias"] = k_bias
+        state_dict[f"transformer_encoder.layers.{k}.self_attn.vlinear.bias"] = v_bias
+
+        # Optionally, remove the old weights and biases if they are no longer needed
+        del state_dict[f"transformer_encoder.layers.{k}.self_attn.in_proj_weight"]
+        del state_dict[f"transformer_encoder.layers.{k}.self_attn.in_proj_bias"]
+
+    return state_dict
+
 def seed_all(seed = 0):
     # print('Setting random, numpy, torch seeds to', seed)
     torch.backends.cudnn.deterministic = True

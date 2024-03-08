@@ -408,7 +408,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         model.load_state_dict(load_weights_from_this_state_dict)
     if initialize_with_model is not None:
         model.init_from_small_model(initialize_with_model)
-
     params_to_optimize = []
     if do_prompt_tuning:
         params_to_optimize.append("prefix_embedding")
@@ -421,7 +420,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         print("Params to optimize: ", params_to_optimize)
 
         print(f"Using a Transformer with {sum(p.numel() for p in model.parameters())/1000/1000:.{2}f} M parameters")
-
+    if do_prompt_tuning and do_private:
+        model.freeze_parameters_except_named(params_to_optimize)
     try:
         for (k, v), (k2, v2) in zip(model.state_dict().items(), initialize_with_model.state_dict().items()):
             print(k, ((v - v2) / v).abs().mean(), v.shape)
@@ -440,7 +440,13 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         lr = get_openai_lr(model)
         if verbose:
             print(f"Using OpenAI max lr of {lr}.")
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    
+    if do_prompt_tuning:
+        pto = (p for n, p in model.named_parameters() if any([x in n for x in params_to_optimize]))
+    else:
+        pto = model.parameters()
+
+    optimizer = torch.optim.AdamW(pto, lr=lr, weight_decay=weight_decay)
     sched_obj = scheduler(optimizer, warmup_epochs, epochs if epochs is not None else 100) # when training for fixed time lr schedule takes 100 steps
 
     scaler = GradScaler() if (train_mixed_precision and not do_private) else None
@@ -543,8 +549,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     if s in n:
                         grad_reqd = True
                         break
-                if do_private:
-                    p.requires_grad = grad_reqd
                 assert p.requires_grad == grad_reqd, "Parameter {} does not have the correct grad requirement!".format(n)
 
         total_loss = 0.
@@ -674,8 +678,9 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     loss.backward()   
                 if do_private:
                     for n, p in model.named_parameters():
-                        if p.requires_grad and (not hasattr(p, "grad_sample") or p.grad_sample is None):
-                            p.grad_sample = p.grad.clone().unsqueeze(0)          
+                        if p.requires_grad: 
+                            if (not hasattr(p, "grad_sample") or p.grad_sample is None):
+                                p.grad_sample = p.grad.clone().unsqueeze(0)          
                 if batch % aggregate_k_gradients == aggregate_k_gradients - 1:
                     if scaler: scaler.unscale_(e_optimizer)
                     if do_private:

@@ -176,8 +176,7 @@ def reload_config(config_type='causal', task_type='multiclass', longer=0, args=N
 
     #differential privacy
     config['private_model'] = args.private_model
-    if config['private_model']:
-        config['eps'], config['delta'], config['gradnorm'] = int(args.edg[0]), float(args.edg[1]), float(args.edg[2])
+    config['epsilon'], config['delta'], config['gradnorm'] = float(args.edg[0]), float(args.edg[1]), float(args.edg[2])
     
     #meta-parameters
     config['validation_period'] = args.validation_period

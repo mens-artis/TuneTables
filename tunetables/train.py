@@ -455,20 +455,27 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     utils.check_compatibility(dl)
 
     if do_private:
+            eps = extra_prior_kwargs_dict.get('epsilon', 1.0)
+            delta = extra_prior_kwargs_dict.get('delta', 1e-5)
+            max_grad_norm = extra_prior_kwargs_dict.get('max_grad_norm', 1.0)
+            if verbose:
+                print("DP training with epsilon: ", eps, "delta: ", delta, "max_grad_norm: ", max_grad_norm)
             errors = ModuleValidator.validate(model, strict=False)
             if len(errors) > 0 and verbose:
                 print("Differentially private model architecture errors: ")
                 print(errors)
             privacy_engine = PrivacyEngine()
+            y_emb = model.prefix_y_embedding.clone()
             model, optimizer, dl = privacy_engine.make_private_with_epsilon(
                 module=model,
                 optimizer=optimizer,
                 data_loader=dl,
                 epochs=epochs,
-                target_epsilon=extra_prior_kwargs_dict.get('epsilon', 1.0),
-                target_delta=extra_prior_kwargs_dict.get('delta', 1e-5),
-                max_grad_norm=extra_prior_kwargs_dict.get('max_grad_norm', 1.0),
+                target_epsilon=eps,
+                target_delta=delta,
+                max_grad_norm=max_grad_norm,
             )
+            model.prefix_y_embedding = y_emb
 
     master_epoch_count = []
     
@@ -780,7 +787,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     
     def save_prefix_weights(model, path, i, do_concat, prefix_weights_l):
         # Save prefix weights
-        prefix_weights = model.state_dict()['prefix_embedding.weight'].cpu().numpy()
+        prefix_weights = model.prefix_embedding.weight.cpu().detach().numpy()
+        #prefix_weights = model.state_dict()['prefix_embedding.weight'].cpu().numpy()
         prefix_fn = f"prefix_weights_{i}.npy"
         prefix_save_path = os.path.join(path, prefix_fn)
         np.save(prefix_save_path, prefix_weights)
@@ -964,6 +972,11 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             res_dict = dict()
             res_dict['epoch_train_time'] = np.round(time.time() - epoch_start_time, 3).item()
             res_dict['master_epoch_count'] = len(master_epoch_count)
+            if do_private:
+                epsilon = privacy_engine.get_epsilon(extra_prior_kwargs_dict.get('delta', 1e-5))
+                if verbose:
+                    print("DP Epsilon is now: ", epsilon)
+                res_dict['epsilon'] = epsilon
             LONG_VAL_EP = ((epoch - 1) % validation_period == 0)
             if real_prior:
                 vrun_dl = get_subset_dl(LONG_VAL_EP=LONG_VAL_EP)

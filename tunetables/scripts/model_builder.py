@@ -346,7 +346,7 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
                         , 'private_model': config.get('private_model', False)
                         , 'epsilon': config.get('epsilon', 50)
                         , 'delta': config.get('delta', 1e-5)
-                        , 'gradnorm': config.get('gradnorm', False)
+                        , 'gradnorm': config.get('gradnorm', 1.2)
                         , 'tuned_prompt_label_balance': config.get('tuned_prompt_label_balance', 'equal')
                         , 'reseed_data': config.get('reseed_data', False)
                         , 'zs_eval_ensemble': config.get('zs_eval_ensemble', 0)

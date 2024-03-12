@@ -274,7 +274,8 @@ def main_f(args):
         if args.run_optuna:
             task_str += '_optuna'
         if args.privacy_sweep:
-            task_str += '_privacy'
+            temp_str = '_privacy_' + '_edg_' + str(args.edg).replace(" ", "_")
+            task_str += temp_str
         if args.bptt > -1:
             task_str += '_bptt_' + str(args.bptt)
         if args.shuffle_every_epoch:
@@ -465,7 +466,8 @@ def main_f(args):
                     else:
                         res, task_str = run_single_job(dataset_path, task, split, log_dir, args, base_cmd, gcp_txt)
                 wandb_bu = args.wandb_log
-                args = tt_args
+                if 'tunetables' in task:
+                    args = tt_args
                 args.wandb_log = wandb_bu
                 if args.gcp_run:
                     gcp_txt += "\"" + task_str + "\"" "\n"

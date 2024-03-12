@@ -72,11 +72,18 @@ class TabDS(Dataset):
         ret_item = tuple([self.X[idx], self.y_float[idx]]), self.y[idx], torch.tensor([])
         return ret_item
     
-    def make_private_ds(self, epsilon, delta, seed):
+    def make_private_ds(self, epsilon, delta, sensitivity, seed):
         # Create a Laplace mechanism
         if self.mech is None:
-            self.mech = Laplace(epsilon=epsilon, delta=delta, seed=seed)
-        self.X = self.X + self.mech.randomise(np.zeros_like(self.X))
+            self.mech = Laplace(epsilon=epsilon, delta=delta, sensitivity=sensitivity, random_state=seed)
+        # Vectorize the function
+            self.vectorized_randomise = np.vectorize(self.mech.randomise)
+
+        # Apply the vectorized function to the array
+        # print("X contents before DP: ", self.X[0:10, 0])
+        self.X = self.vectorized_randomise(self.X)
+        # print("X contents after DP: ", self.X[0:10, 0])
+        # self.X = self.X + self.mech.randomise(np.zeros_like(self.X))
 
 class TabularDataset(object):
     def __init__(

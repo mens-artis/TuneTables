@@ -221,7 +221,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         if private_ds:
             eps = extra_prior_kwargs_dict.get('epsilon', 1.0)
             delta = extra_prior_kwargs_dict.get('delta', 1e-5)
-            train_ds.make_private_ds(eps, delta, extra_prior_kwargs_dict.get('rand_seed', 0))
+            sensitivity = extra_prior_kwargs_dict.get('max_grad_norm', 1.0)
+            train_ds.make_private_ds(eps, delta, sensitivity, extra_prior_kwargs_dict.get('rand_seed', 0))
 
         return X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds
 

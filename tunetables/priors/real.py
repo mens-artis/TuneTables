@@ -10,6 +10,11 @@ try:
 except ImportError:
     print("faiss is not available; subset maker will not work until it is installed")
 
+try:
+    from diffprivlib.mechanisms import Laplace
+except ImportError:
+    print("Could not import diffprivlib (pip install diffprivlib) for differential privacy")
+
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
 from sklearn.impute import SimpleImputer
@@ -55,6 +60,7 @@ class TabDS(Dataset):
 
         self.y_float = torch.from_numpy(y.copy().astype(np.float32))
         self.y = torch.from_numpy(y.copy().astype(np.int64))
+        self.mech = None
 
         print(f"TabDS: X.shape = {self.X.shape}, y.shape = {self.y.shape}")
 
@@ -65,6 +71,12 @@ class TabDS(Dataset):
         #(X,y) data, y target, single_eval_pos
         ret_item = tuple([self.X[idx], self.y_float[idx]]), self.y[idx], torch.tensor([])
         return ret_item
+    
+    def make_private_ds(self, epsilon, delta, seed):
+        # Create a Laplace mechanism
+        if self.mech is None:
+            self.mech = Laplace(epsilon=epsilon, delta=delta, seed=seed)
+        self.X = self.X + self.mech.randomise(np.zeros_like(self.X))
 
 class TabularDataset(object):
     def __init__(

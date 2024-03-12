@@ -60,10 +60,14 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     # print(f'Using {device} device')
     using_dist, rank, device = init_dist(device)
     start_time = time.time()
+
+    #FLAGS
     max_time = extra_prior_kwargs_dict.get('max_time', 0)
     do_kl_loss = extra_prior_kwargs_dict.get('kl_loss', False)
     do_private = extra_prior_kwargs_dict.get('private_model', False)
     n_workers = extra_prior_kwargs_dict.get('num_workers', 1)
+    not_zs = extra_prior_kwargs_dict.get('zs_eval_ensemble', 0) == 0
+    do_zs = (not not_zs) and (not do_kl_loss)
 
     if extra_prior_kwargs_dict.get('pad_features', None):
         num_features = 100
@@ -87,7 +91,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     if real_data_qty <= 0:
         real_data_qty = bptt
 
-    def make_datasets(extra_prior_kwargs_dict, do_permute=True, bptt = 0, steps_per_epoch=None):
+    def make_datasets(extra_prior_kwargs_dict, do_permute=True, bptt = 0, steps_per_epoch=None, private_ds=False):
 
         args.summerize_after_prep = extra_prior_kwargs_dict.get("summerize_after_prep", "False")
         args.preprocess_type = extra_prior_kwargs_dict.get("preprocess_type", "none")
@@ -214,6 +218,11 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         val_ds = TabDS(X_val, y_val)
         test_ds = TabDS(X_test, y_test)
 
+        if private_ds:
+            eps = extra_prior_kwargs_dict.get('epsilon', 1.0)
+            delta = extra_prior_kwargs_dict.get('delta', 1e-5)
+            train_ds.make_private_ds(eps, delta, extra_prior_kwargs_dict.get('rand_seed', 0))
+
         return X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds
 
     def make_dataloaders(bptt=bptt, not_zs=True):
@@ -250,8 +259,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     #REAL PRIOR
     if real_prior:
         #load data
-        not_zs = extra_prior_kwargs_dict.get('zs_eval_ensemble', 0) == 0
-        do_zs = (not not_zs) and (not do_kl_loss)
         seed_all(extra_prior_kwargs_dict.get('rand_seed'))
 
         if do_kl_loss:
@@ -260,7 +267,11 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 extra_prior_kwargs_dict['uniform_bptt'] = True
             
         data_for_fitting = None
-        X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds = make_datasets(extra_prior_kwargs_dict, do_permute=not_zs, bptt=bptt, steps_per_epoch=steps_per_epoch)
+        X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds = make_datasets(extra_prior_kwargs_dict, 
+                                                                                                                                                    do_permute=not_zs, 
+                                                                                                                                                    bptt=bptt, 
+                                                                                                                                                    steps_per_epoch=steps_per_epoch,
+                                                                                                                                                    private_ds = (do_private and do_zs))
         old_bptt = bptt
         dl, val_dl, test_dl, bptt, data_for_fitting  = make_dataloaders(bptt=bptt, not_zs=not_zs)
 

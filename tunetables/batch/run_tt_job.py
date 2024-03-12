@@ -301,7 +301,8 @@ def main_f(args):
             if args.wandb_log:
                 command = command + [
                     '--wandb_log',
-                    '--wandb_group', "\"" + dataset.strip() + "_" + task_str + "_" + subset_ft_method + "\"", 
+                    '--wandb_group', "\"" + dataset.strip() + "_" + task_str + "_" + subset_ft_method + "\"",
+                    '--wandb_project', args.wandb_project, 
                 ]
         else:
             # Get task args

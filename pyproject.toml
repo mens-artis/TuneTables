@@ -15,14 +15,14 @@ description = "TuneTables is a tabular classification framework that extends the
 readme = "README.md"
 requires-python = ">=3.7"
 dependencies=[
-        'torch>=1.9.0,<=2.0.1',
+        'torch>=1.9.0',
         'scikit-learn>=0.24.2,<=1.4.0',
         'pyyaml>=5.4.1,<=6.0.1',
         'numpy>=1.21.2,<=1.26.4',
         'requests>=2.23.0',
         'uncertainty_metrics',
         'wandb==0.16.1',
-        'tqdm>=4.62.1,<=4.66.1',
+        'tqdm>=4.62.1',
         'configspace==0.4.21',
         'pandas>=1.3.3,<=2.2.0',
 ]
@@ -55,4 +55,4 @@ full = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/penfever/TabPFN-pt/'"
+"Homepage" = "https://github.com/penfever/TuneTables/"

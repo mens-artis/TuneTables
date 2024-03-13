@@ -1,3 +1,6 @@
+# DS_Store
+*.DS_Store
+
 # weights and biases
 */wandb_api_key.txt
 */wandb/
@@ -5,10 +8,12 @@
 # config
 */config/
 */metadata/
+metadata
 driver_installer.run
 
 # datasets
 tunetables/data/*
+tabpfn/*
 
 #old folders
 tabpfn

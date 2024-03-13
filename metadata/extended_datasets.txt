@@ -1,0 +1,8 @@
+openml__walking-activity__9945
+openml__chess__3952
+openml__soybean__41
+openml__primary-tumor__146032
+openml__Kuzushiji-MNIST__361327
+openml__SVHN__168297
+openml__CIFAR_10__167124
+openml__mnist_784__3573

@@ -41,9 +41,73 @@ import tunetables.encoders as encoders
 import tunetables.positional_encodings as positional_encodings
 from tunetables.utils import init_dist, seed_all, EmbeddingConcatenator
 
-# script_path = os.path.abspath(__file__)
-# project_path = os.path.dirname(os.path.dirname(script_path))
-# sys.path.insert(0, os.path.join(project_path + "/tabpfn/priors"))
+def real_data_eval_out(r_model, cl=1000, train_data=None, val_dl=None, softmax_temperature = torch.log(torch.tensor([0.8])), return_probs=False):
+
+        verbose = False
+
+        start_time = time.time()
+        td = copy.deepcopy(train_data)
+        num_classes_local = len(torch.unique(td[1]))
+        td[0] = td[0][:cl, ...]
+        td[1] = td[1][:cl, ...]
+        single_eval_pos = len(td[0])
+        device = next(r_model.parameters()).device
+        softmax_temperature = softmax_temperature.to(device)
+        with torch.inference_mode():
+            # correct = 0
+            # total = len(val_dl.dataset)
+            prediction_list = []
+            target_list = []
+            output_list = []
+            for batch, (data, targets, _) in enumerate(val_dl):
+
+                #extra safeguard against learning from test set
+                data_temp_idx = torch.randperm(data[1].nelement())
+                data[1] = data[1].view(-1)[data_temp_idx].view(data[1].size())
+
+                batch_data = tuple([torch.cat((td[0], data[0]), dim=0).to(torch.float32), torch.cat((td[1], data[1]), dim=0).to(torch.float32)])
+                output = r_model(tuple(e.to(device) if torch.is_tensor(e) else e for e in batch_data) if isinstance(batch_data, tuple) else batch_data.to(device)
+                    , single_eval_pos=single_eval_pos)
+                output = output[:, 0:num_classes_local] / torch.exp(softmax_temperature)
+                output = torch.nn.functional.softmax(output, dim=-1)
+                output_list.append(output)
+                _, predicted = torch.max(output.cpu().data, 1)
+                prediction_list.append(predicted)
+                target_list.append(targets)
+            outputs = torch.cat(output_list, dim=0).cpu().numpy()
+            predictions = torch.cat(prediction_list, dim=0).cpu().numpy()
+            targets = torch.cat(target_list, dim=0).cpu().numpy()
+
+        results = dict()
+        warnings.filterwarnings("ignore")
+        results['Eval_Time'] = np.round(time.time() - start_time, 3).item()
+        results['Accuracy'] = np.round(accuracy_score(targets, predictions), 3).item()
+        results['Log_Loss'] = np.round(log_loss(targets, outputs, labels=np.arange(num_classes_local)), 3).item()
+        results['F1_Weighted'] = np.round(f1_score(targets, predictions, average='weighted'), 3).item()
+        results['F1_Macro'] = np.round(f1_score(targets, predictions, average='macro'), 3).item()
+        try:
+            if num_classes_local == 2:
+                results['ROC_AUC'] = np.round(roc_auc_score(targets, outputs[:, 1], labels=np.arange(num_classes_local)), 3).item()
+            else:
+                results['ROC_AUC'] = np.round(roc_auc_score(targets, outputs, labels=np.arange(num_classes_local), multi_class='ovr'), 3).item()
+        except Exception as e:
+            if verbose:
+                print("Error calculating ROC AUC: ", e)
+            results['ROC_AUC'] = 0.0
+        try:
+            results['ECE'] = np.round(um.ece(targets, outputs, num_bins=30), 3).item()
+            results['TACE'] = np.round(um.tace(targets, outputs, num_bins=30), 3).item()
+        except Exception as e:
+            if verbose:
+                print("Error calculating ECE/TACE: ", e)
+            results['ECE'] = 0.0
+            results['TACE'] = 0.0
+
+        warnings.filterwarnings("default")
+        if return_probs:
+            return results, outputs, targets
+        else:
+            return results, predictions, targets
 
 def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nlayers=6, nhead=2, dropout=0.0,
           epochs=10, steps_per_epoch=100, batch_size=200, bptt=10, lr=None, weight_decay=0.0, warmup_epochs=10, input_normalization=False,
@@ -51,7 +115,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
           load_weights_from_this_state_dict=None, validation_period=10, single_eval_pos_gen=None, bptt_extra_samples=None, gpu_device='cuda:0',
           aggregate_k_gradients=1, verbose=False, style_encoder_generator=None, epoch_callback=None,
           initializer=None, initialize_with_model=None, train_mixed_precision=False, efficient_eval_masking=True, 
-          boosting=False, boosting_lr=1e-3, boosting_n_iters=10, rand_init_ensemble=False, do_concat="", **model_extra_args
+          boosting=False, boosting_lr=1e-3, boosting_n_iters=10, rand_init_ensemble=False, do_concat="", is_wrapper=False, x_wrapper = None, y_wrapper = None, 
+          **model_extra_args
           ):
     #ulimit error fix
     torch.multiprocessing.set_sharing_strategy('file_system')
@@ -94,20 +159,26 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     if real_data_qty <= 0:
         real_data_qty = bptt
 
-    def make_datasets(extra_prior_kwargs_dict, do_permute=True, bptt = 0, steps_per_epoch=None, private_ds=False):
+    def make_datasets(extra_prior_kwargs_dict, do_permute=True, bptt = 0, steps_per_epoch=None, is_wrapper=False, private_ds=False):
 
         args.summerize_after_prep = extra_prior_kwargs_dict.get("summerize_after_prep", "False")
         args.preprocess_type = extra_prior_kwargs_dict.get("preprocess_type", "none")
         args.rand_seed = extra_prior_kwargs_dict.get('rand_seed', 0)
 
-        for i, split_dictionary in enumerate(dataset.split_indeces):
-            # TODO: make stopping index a hyperparameter
-            if i != extra_prior_kwargs_dict.get('split'): # config['split']:
-                continue
-            train_index = split_dictionary["train"]
-            val_index = split_dictionary["val"]
-            test_index = split_dictionary["test"]
-            
+        if is_wrapper:
+            train_index = dataset.split_indeces[0]
+            val_index = dataset.split_indeces[1]
+            test_index = dataset.split_indeces[1]
+        else:
+            for i, split_dictionary in enumerate(dataset.split_indeces):
+                # TODO: make stopping index a hyperparameter
+                if i != extra_prior_kwargs_dict.get('split'): # config['split']:
+                    continue
+                train_index = split_dictionary["train"]
+                val_index = split_dictionary["val"]
+                test_index = split_dictionary["test"]
+        
+        if True:
             # run pre-processing & split data (list of numpy arrays of length num_ensembles)
             processed_data = process_data(
                 dataset,
@@ -122,6 +193,13 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             X_train, y_train = processed_data["data_train"]
             X_val, y_val = processed_data["data_val"]
             X_test, y_test = processed_data["data_test"]
+
+            if is_wrapper:
+                extra_prior_kwargs_dict['shuffle_index'] = {
+                    'train': np.arange(0, len(X_train)),
+                    'val': np.arange(0, len(X_val)),
+                    'test': np.arange(0, len(X_test)),
+                }
 
             if extra_prior_kwargs_dict.get("shuffle_index", None) == None:
                 extra_prior_kwargs_dict['shuffle_index'] = {
@@ -149,14 +227,14 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     print(f"WARNING: bptt {bptt} is larger than the number of samples in the training set, {n_samples}. Setting bptt=128.")
                 bptt = 128
                 
-            break
+            
         
         seed_all(extra_prior_kwargs_dict.get('rand_seed', 0))
 
         X, y = X_train, y_train
 
-        #Permutation of feature and label order
-        if do_permute:
+        #Permutation of label order
+        if do_permute and (not is_wrapper):
             label_perm = np.random.permutation(num_classes)
         else:
             label_perm = np.arange(num_classes)
@@ -167,11 +245,14 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         rev_invert_perm_map = {
             i: label_perm[i] for i in range(num_classes)
         }
-        if do_permute:
+
+        #Permutation of feature order
+        if do_permute and (not is_wrapper):
             feat_idx = np.random.permutation(X.shape[1])
         else:
             feat_idx = np.arange(X.shape[1])
         
+        #Permutation of train data order
         idx = np.random.permutation(X.shape[0])
         X = X[idx, ...]
         y = y[idx, ...]
@@ -276,9 +357,13 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                                                                                                                                                     do_permute=not_zs, 
                                                                                                                                                     bptt=bptt, 
                                                                                                                                                     steps_per_epoch=steps_per_epoch,
+                                                                                                                                                    is_wrapper=is_wrapper,
                                                                                                                                                     private_ds = private_data)
         old_bptt = bptt
         dl, val_dl, test_dl, bptt, data_for_fitting  = make_dataloaders(bptt=bptt, not_zs=not_zs)
+
+        if epochs == 0:
+            return None, None, None, test_dl
 
         if verbose:
             print("Dataset information: ")
@@ -296,11 +381,10 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 ens_size = 32
             eval_model = TabPFNClassifier(device='cuda', 
                                                     N_ensemble_configurations=ens_size, 
-                                                    base_path="/home/benfeuer/TabPFN-pt/tabpfn",
-                                                    # seed=None,
+                                                    base_path=".",
                                                     seed=extra_prior_kwargs_dict.get('rand_seed', 0),
                                                     batch_size_inference=1,
-                                                    )
+                                        )
             if do_kl_loss:
                 eval_model.fit(data_for_fitting[0], data_for_fitting[1], overwrite_warning=True)
         else:
@@ -511,6 +595,12 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             target_list = []
             output_list = []
             for batch, (data, targets, _) in enumerate(val_dl):
+                
+                if extra_prior_kwargs_dict.get('debug', False):
+                    # Extra safeguard against test set contamination, permute label order before passing into model
+                    data_temp_idx = torch.randperm(data[1].nelement())
+                    data[1] = data[1].view(-1)[data_temp_idx].view(data[1].size())
+
                 batch_data = tuple([torch.cat((td[0], data[0]), dim=0).to(torch.float32), torch.cat((td[1], data[1]), dim=0).to(torch.float32)])
                 output = r_model(tuple(e.to(device) if torch.is_tensor(e) else e for e in batch_data) if isinstance(batch_data, tuple) else batch_data.to(device)
                     , single_eval_pos=single_eval_pos)
@@ -807,11 +897,14 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         #prefix_weights = model.state_dict()['prefix_embedding.weight'].cpu().numpy()
         prefix_fn = f"prefix_weights_{i}.npy"
         prefix_save_path = os.path.join(path, prefix_fn)
-        np.save(prefix_save_path, prefix_weights)
+        if not is_wrapper:
+            np.save(prefix_save_path, prefix_weights)
         prefix_y_labels = model.prefix_y_embedding.cpu().numpy()
         prefix_y_fn = f"prefix_y_labels_{i}.npy"
         prefix_y_save_path = os.path.join(path, prefix_y_fn)
-        np.save(prefix_y_save_path, prefix_y_labels)
+
+        if not is_wrapper:
+            np.save(prefix_y_save_path, prefix_y_labels)
         if do_concat:
             prefix_weights_l.append({"prefix_weights": torch.from_numpy(prefix_weights).float(), "prefix_y_labels": torch.from_numpy(prefix_y_labels)})
             # print("Prefix weights list length: ", len(prefix_weights_l))
@@ -1088,8 +1181,9 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     mstr = extra_prior_kwargs_dict.get('model_string')
                     boost_iter = f"ensemble_iter_{cur_boost_iter}" if is_ensemble else ""
                     log_path = os.path.join(extra_prior_kwargs_dict.get('save_path'), f'{mstr}_{boost_iter}_log_{epoch}.json')
-                    with open(log_path, 'w') as f:
-                        json.dump(res_dict, f, indent=4)
+                    if not is_wrapper:
+                        with open(log_path, 'w') as f:
+                            json.dump(res_dict, f, indent=4)
 
                 if NO_PATIENCE:
                     break
@@ -1243,7 +1337,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 #     delattr(dataset, "ssm")
                 #load data
                 extra_prior_kwargs_dict['preprocess_type'] = np.random.choice(['none', 'power_all', 'robust_all', 'quantile_all'])
-                X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds = make_datasets(extra_prior_kwargs_dict, do_permute=not_zs, bptt=bptt, steps_per_epoch=steps_per_epoch, do_private=private_data)
+                X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds = make_datasets(extra_prior_kwargs_dict, do_permute=not_zs, bptt=bptt, steps_per_epoch=steps_per_epoch, is_wrapper=is_wrapper, do_private=private_data)
                 old_bptt = bptt
                 dl, val_dl, test_dl, bptt, data_for_fitting  = make_dataloaders(bptt=bptt)
                 if old_bptt != bptt:
@@ -1352,9 +1446,9 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             dl = None
         # todo: model_builder.py expects two outputs: model, results_dict
         #return total_loss, total_positional_losses, model.to('cpu'), dl
-        return model.to('cpu'), best_results
+        return model, best_results, data_for_fitting, None
 
-    return model.to('cpu'), best_results
+    return model, best_results, data_for_fitting, None
 
 def _parse_args(config_parser, parser):
     # Do we have a config file to parse?

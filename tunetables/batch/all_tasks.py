@@ -3,7 +3,6 @@ import copy
 base_dict = {
     'prior_type' : 'real',
     'pad_features' : '',
-    'resume' : '/home/benfeuer/TabPFN-pt/tunetables/models_diff/prior_diff_real_checkpoint_n_0_epoch_42.cpkt',
     'epochs' : 61,
     'validation_period' : 2,
     'save_every_k_epochs' : 15,

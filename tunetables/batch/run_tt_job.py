@@ -1,4 +1,3 @@
-import subprocess
 import asyncio
 import os
 import time
@@ -359,7 +358,7 @@ def main_f(args):
                 if args.wandb_log and args.wandb_project == '':
                     command = command + ["--wandb_project", args.wandb_project] 
                 elif args.wandb_log:
-                    command = command + ["--wandb_project", "tabpfn-pt-optuna"]
+                    command = command + ["--wandb_project", "tunetables-optuna"]
         if args.bptt > -1:
             if "--bptt" in command:
                 command[command.index("--bptt") + 1] = str(args.bptt)
@@ -504,11 +503,11 @@ def main_f(args):
             f.write(stderr.decode())
         
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Run TabPFN')
-    parser.add_argument('--base_path', type=str, default='/home/benfeuer/TabPFN-pt/tunetables/data', help='Path to TabPFN-pt dataset directory')
-    parser.add_argument('--datasets', type=str, default='/home/benfeuer/TabPFN-pt/tunetables/metadata/subset.txt', help='Path to datasets text file')
-    parser.add_argument('--tasks', type=str, default='/home/benfeuer/TabPFN-pt/tunetables/metadata/subset_tasks.txt', help='Tasks to run')
-    parser.add_argument('--resume', type=str, default='/home/benfeuer/TabPFN-pt/tunetables/models_diff/prior_diff_real_checkpoint_n_0_epoch_42.cpkt', help='TabPFN checkpoint to resume from')
+    parser = argparse.ArgumentParser(description='Run TuneTables')
+    parser.add_argument('--base_path', type=str, default='data', help='Path to TuneTables dataset directory')
+    parser.add_argument('--datasets', type=str, default='../metadata/subset.txt', help='Path to datasets text file')
+    parser.add_argument('--tasks', type=str, default='../metadata/subset_tasks.txt', help='Tasks to run')
+    parser.add_argument('--resume', type=str, default='../models/prior_diff_real_checkpoint_n_0_epoch_42.cpkt', help='Checkpoint to resume from')
     parser.add_argument('--bptt', type=int, default=-1, help='bptt batch size')
     parser.add_argument('--adaptive_bptt', action='store_true', help='Whether to use adaptive bptt')
     parser.add_argument('--splits', nargs='+', type=int, default=[0], help='Splits to run')

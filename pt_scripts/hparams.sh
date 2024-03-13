@@ -1,10 +1,5 @@
-
-# nohup python -u train_loop.py --prior_type real --data_path "/home/xxxxx/TabPFN-pt/tabpfn/data/openml__airlines__189354" --resume "/home/xxxxx/TabPFN-pt/tabpfn/models_diff/prior_diff_real_checkpoint_n_0_epoch_42.cpkt" --prompt_tuning --tuned_prompt_size 1000 --lr 0.1 --save_every_k_epochs=30 --epochs 31 --aggregate_k_gradients 1 >> dec13.out &
-# openml__airlines__189354  openml__albert__189356  openml__connect-4__146195  openml__higgs__146606  openml__poker-hand__9890
-
-
-DATA_PATH="/home/xxxxx/TabPFN-pt/tabpfn/data/openml__higgs__146606"
-RESUME="/home/xxxxx/TabPFN-pt/tabpfn/models_diff/prior_diff_real_checkpoint_n_0_epoch_42.cpkt"
+DATA_PATH="/home/xxxxx/TuneTables/tunetables/data/openml__higgs__146606"
+RESUME="/home/xxxxx/TuneTables/tunetables/models_diff/prior_diff_real_checkpoint_n_0_epoch_42.cpkt"
 EPOCHS=31
 
 # Learning rate, gradient aggregation (epochs, AdamW)

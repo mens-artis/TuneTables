@@ -17,7 +17,6 @@ run_experiment_gpu() {
   while [ $COUNT -le $MAX_TRIES ]; do
 
     # attempt to create instance
-    # gcloud compute instances create   --no-restart-on-failure --maintenance-policy=TERMINATE --provisioning-model=STANDARD --service-account= --scopes=https://www.googleapis.com/auth/cloud-platform --accelerator=count=1,type=nvidia-l4 --min-cpu-platform=Automatic --tags=http-server,https-server,lb-health-check --no-shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring --labels=goog-ec-src=vm_add-gcloud --reservation-affinity=any --source-machine-image=tabpfn-pt-image-jan18
 
     gcloud compute instances create $instance_name --zone=$zone \
     --project=$project --image-family=$image_family \
@@ -57,7 +56,7 @@ AAAAB3NzaC1yc2EAAAADAQABAAABAQDfhoLPr6ZoSSL9epL7N0YQuJ9nD\+JB5CmK/f3NTX0vmOAHT51
   # 1. set environment variables used by script tabzilla_experiment.sh
   # 2. chmod the experiment script
   # 3. run the experiment script
-  instance_repo_dir=/home/benfeuer/TabPFN-pt
+  instance_repo_dir=/home/benfeuer/TuneTables
   # instance_script=${instance_repo_dir}/scripts/run_experiment_on_instance.sh
 
   COUNT=1
@@ -85,15 +84,6 @@ AAAAB3NzaC1yc2EAAAADAQABAAABAQDfhoLPr6ZoSSL9epL7N0YQuJ9nD\+JB5CmK/f3NTX0vmOAHT51
       run_cmd="python3 batch/run_tt_job.py ${args_str} --datasets './metadata/dataset.txt' --tasks './metadata/task.txt'"
 
       echo "running tunetables experiment with task: ${task_str}, dataset: ${dataset_str}, args: ${args_str}"
-
-        # NOTE: OLD COMMANDS
-        # sudo git config --global --add safe.directory /home/benfeuer/TabPFN-pt; \
-        # sudo git config pull.rebase false; \
-        # sudo git checkout main; \
-        # sudo git pull; \
-        # pip install . --user; \
-        # find -type f -exec chmod 777 {} \;
-        # find -type d -exec chmod 777 {} \;
 
       gcloud compute ssh --ssh-flag="-A" ${instance_name} --zone=${zone} --project=${project} \
         --command="\

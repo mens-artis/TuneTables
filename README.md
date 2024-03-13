@@ -10,7 +10,7 @@ While TabPFN achieves very strong performance on small tabular datasets, its cur
 
 <p align="center"><img src="img/tunetables_overview.png" width=700 /></p>
 
-This codebase extends the excellent public repository [TabPFN]([xxx](https://github.com/automl/tabpfn)), by Noah Hollmann, Samuel Müller, Katharina Eggensperger, and Frank Hutter.
+This codebase extends the excellent public repository [TabPFN](https://github.com/automl/tabpfn), by Noah Hollmann, Samuel Müller, Katharina Eggensperger, and Frank Hutter.
 
 ## Table of Contents
 1. [Hardware Requirements](#hardware-requirements)
@@ -25,14 +25,14 @@ This codebase extends the excellent public repository [TabPFN]([xxx](https://git
 
 ## Installation
 
-1. Clone TabPFN-pt (TuneTables) repository to your local instance.
+1. Clone the TuneTables repository to your local instance.
 2. Initialize a clean environment of your preference, E.G.:
 
 ```bash
 conda create --name "TuneTables" python=3.10
 ```
 
-3. From the TabPFN-pt directory, run --
+3. From the TuneTables directory, run --
 
 ```bash
 pip install . 
@@ -50,7 +50,7 @@ TuneTables was tested on over 40 datasets sourced from [OpenML](https://www.open
 
 ### Dataset Preparation
 
-In order to prepare your dataset(s) for TuneTables, we recommend following the dataset preparation steps outlined in the [TabZilla](https://github.com/naszilla/tabzilla?tab=readme-ov-file#datasets) repository, which we used in our experiments. We also include two preprocessed datasets, `openml__elevators__3711` and `openml__har__14970` in `TabPFN-pt\sample_datasets`, for testing purposes.
+In order to prepare your dataset(s) for TuneTables, we recommend following the dataset preparation steps outlined in the [TabZilla](https://github.com/naszilla/tabzilla?tab=readme-ov-file#datasets) repository, which we used in our experiments. We also include two preprocessed datasets, `openml__elevators__3711` and `openml__har__14970` in `TuneTables\sample_datasets`, for testing purposes.
 
 ### List of OpenML Datasets
 
@@ -151,3 +151,16 @@ The `run_tt_job` script accepts several special flags. We describe their functio
 `--verbose`: If you pass this argument, TuneTables will log a lot more information about your runs to the console. This is useful for debugging or digging into the code.
 
 `--print_stdout`: If you pass this argument, TuneTables will print stdout and stderr to the console after each task completes.
+
+## Citation
+
+Please cite our [paper](https://arxiv.org/abs/2402.11137) if you use the code or model in this repo.
+
+```bibtex
+@article{feuer2024tunetables,
+  title={TuneTables: Context Optimization for Scalable Prior-Data Fitted Networks},
+  author={Feuer, Benjamin and Schirrmeister, Robin Tibor and Cherepanova, Valeriia and Hegde, Chinmay and Hutter, Frank and Goldblum, Micah and Cohen, Niv and White, Colin},
+  journal={arXiv preprint arXiv:2402.11137},
+  year={2024}
+}
+```

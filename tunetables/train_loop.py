@@ -12,7 +12,7 @@ from tunetables.priors.utils import uniform_int_sampler_f
 from tunetables.notebook_utils import *
 from tunetables.utils import make_serializable, wandb_init
 
-def train_function(config_sample, i=0, add_name=''):
+def train_function(config_sample, i=0, add_name='', is_wrapper = False, x_wrapper = None, y_wrapper = None, cat_idx = []):
 
     if config_sample['boosting'] or config_sample['rand_init_ensemble'] or config_sample['bagging']:
         #don't save checkpoints for ensembling, just prefixes
@@ -42,13 +42,16 @@ def train_function(config_sample, i=0, add_name=''):
         my_callback = save_callback
 
     #TODO: get_model shouldn't be the method that trains the model
-    model, results_dict = get_model(config_sample
+    model, results_dict, data_for_fitting, test_loader = get_model(config_sample
                       , config_sample["device"]
                       , should_train=True
                       , state_dict=config_sample["state_dict"]
-                      , epoch_callback = my_callback)
+                      , epoch_callback = my_callback, is_wrapper = is_wrapper, x_wrapper = x_wrapper, y_wrapper = y_wrapper, cat_idx = cat_idx)
     
-    return results_dict
+    if is_wrapper:
+        return model, data_for_fitting, test_loader
+    else:
+        return results_dict
 
 def set_compatibility_params(config, args):
     """
@@ -276,7 +279,7 @@ def reload_config(config_type='causal', task_type='multiclass', longer=0, args=N
 def parse_args():
     import argparse
     parser = argparse.ArgumentParser(description='Train a model.')
-    parser.add_argument('--resume', type=str, default="./models_diff/prior_diff_real_checkpoint_n_0_epoch_42.cpkt", help='Path to model checkpoint to resume from.')
+    parser.add_argument('--resume', type=str, default="../models/prior_diff_real_checkpoint_n_0_epoch_42.cpkt", help='Path to model checkpoint to resume from.')
     parser.add_argument('--save_path', type=str, default="./logs", help='Path to save new checkpoints.')
     parser.add_argument('--prior_type', type=str, default="real", help='Type of prior to use (real, prior_bag).')
     parser.add_argument('--data_path', type=str, default=".", help='Path to data.')
@@ -307,10 +310,10 @@ def parse_args():
     parser.add_argument('--save_every_k_epochs', type=int, default=10, help='How often to save new checkpoints.')
     parser.add_argument('--validation_period', type=int, default=4, help='How often to validate on the entire val set.')
     parser.add_argument('--val_subset_size', type=int, default=2000, help='How many samples to use for fast validation.')
-    parser.add_argument('--wandb_name', type=str, default='tabpfn_pt_airlines', help='Name for wandb logging.')
+    parser.add_argument('--wandb_name', type=str, default='tt-airlines', help='Name for wandb logging.')
     parser.add_argument('--wandb_log', action='store_true', help='Whether to log to wandb.')
     parser.add_argument('--wandb_group', type=str, default='temp', help='Group for wandb logging.')
-    parser.add_argument('--wandb_project', type=str, default='tabpfn-pt', help='Project for wandb logging.')
+    parser.add_argument('--wandb_project', type=str, default='tt-dp', help='Project for wandb logging.')
     parser.add_argument('--wandb_entity', type=str, default='nyu-dice-lab', help='Entity for wandb logging.')
     parser.add_argument('--subset_features_method', type=str, default='mutual_information', help='Method for feature subset selection ("mutual_information, random, first, pca").')
     parser.add_argument('--subset_features', type=int, default=100, help='Number of features to use for feature subset selection.')
@@ -361,7 +364,7 @@ def train_loop():
         if isinstance(v, ConfigSpace.hyperparameters.CategoricalHyperparameter):
             config[k] = v.default_value
 
-    results_dict = train_function(config, 0, model_string)
+    results_dict = train_function(config, 0, model_string, is_wrapper = False)
 
     if config['wandb_log']:
         wandb.finish()

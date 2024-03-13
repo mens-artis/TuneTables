@@ -4,6 +4,7 @@ from datetime import datetime
 from functools import partial
 import torch
 import math
+import numpy as np
 
 import tunetables.encoders as encoders
 from tunetables.transformer import TransformerModel
@@ -214,7 +215,7 @@ def get_meta_gp_prior_hyperparameters(config):
     return config
 
 
-def get_model(config, device, should_train=True, verbose=False, state_dict=None, epoch_callback=None):
+def get_model(config, device, should_train=True, verbose=False, state_dict=None, epoch_callback=None, is_wrapper = False, x_wrapper = None, y_wrapper = None, cat_idx = None):
     extra_kwargs = {}
     n_features = config['max_features']
 
@@ -240,9 +241,43 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
     #Real Data Training
     if config['prior_type'] == 'real':
         from priors.real import TabularDataset
-        dataset = TabularDataset.read(Path(config['data_path']).resolve())
-        prior_hyperparameters = {}
-        use_style = False
+
+        print("is_wrapper",is_wrapper)
+
+        if is_wrapper:
+            num_classes = len(np.unique(y_wrapper))
+            target_type = "classification"
+
+            total_data_points = len(x_wrapper) 
+            indices = np.arange(total_data_points)
+            
+            if config['epochs']==0: #only process test_loader
+                train_indices = indices
+                val_indices = indices
+                num_classes = 2 #we just want the dataloader
+            else:
+                np.random.shuffle(indices)
+                train_size = int(0.85 * total_data_points)
+                eval_size = total_data_points - train_size
+                train_indices = indices[:train_size]
+                val_indices = indices[train_size:]            
+
+            split_indeces = [train_indices, val_indices]
+
+            dataset = TabularDataset(name = "user_dataset",
+                                            X = x_wrapper,
+                                            y = y_wrapper,
+                                            cat_idx = cat_idx,
+                                            target_type = target_type,
+                                            num_classes = num_classes,
+                                            split_indeces = [train_indices, val_indices]
+                                        )
+            prior_hyperparameters = {}
+            use_style = False
+        else:
+            dataset = TabularDataset.read(Path(config['data_path']).resolve())
+            prior_hyperparameters = {}
+            use_style = False
 
     #Priors == DataLoaders (synthetic)
     if config['prior_type'] == 'prior_bag':
@@ -376,7 +411,7 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
     else:
         sep_samp = get_uniform_single_eval_pos_sampler(config.get('max_eval_pos', config['bptt']), min_len=config.get('min_eval_pos', 0))
         
-    model, results_dict = train(args
+    model, results_dict, data_for_fitting, test_loader = train(args
                   , dataloader
                   , loss
                   , encoder
@@ -411,6 +446,10 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
                   , rand_init_ensemble = config.get('rand_init_ensemble', False)
                   , do_concat = config.get('concat_method', '')
                   , weight_decay=config.get('weight_decay', 0.0)
-                  )
+                  , is_wrapper = is_wrapper
+                  , x_wrapper = x_wrapper, 
+                  y_wrapper = y_wrapper)
+
+    return model, results_dict, data_for_fitting, test_loader
 
     return model, results_dict

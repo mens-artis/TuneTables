@@ -148,7 +148,7 @@ class TabularDataset(object):
         elif target_type == "binary":
             assert num_classes == 1
         elif target_type == "classification":
-            assert num_classes > 2
+            assert num_classes >= 2
 
         self.name = name
         self.X = X

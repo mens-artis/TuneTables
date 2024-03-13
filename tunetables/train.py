@@ -65,6 +65,9 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     max_time = extra_prior_kwargs_dict.get('max_time', 0)
     do_kl_loss = extra_prior_kwargs_dict.get('kl_loss', False)
     do_private = extra_prior_kwargs_dict.get('private_model', False)
+    if extra_prior_kwargs_dict.get('private_data', False):
+        private_data = True
+        do_private = False
     n_workers = extra_prior_kwargs_dict.get('num_workers', 1)
     not_zs = extra_prior_kwargs_dict.get('zs_eval_ensemble', 0) == 0
     do_zs = (not not_zs) and (not do_kl_loss)
@@ -268,11 +271,12 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 extra_prior_kwargs_dict['uniform_bptt'] = True
             
         data_for_fitting = None
+
         X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds = make_datasets(extra_prior_kwargs_dict, 
                                                                                                                                                     do_permute=not_zs, 
                                                                                                                                                     bptt=bptt, 
                                                                                                                                                     steps_per_epoch=steps_per_epoch,
-                                                                                                                                                    private_ds = (do_private and do_zs))
+                                                                                                                                                    private_ds = private_data)
         old_bptt = bptt
         dl, val_dl, test_dl, bptt, data_for_fitting  = make_dataloaders(bptt=bptt, not_zs=not_zs)
 
@@ -988,7 +992,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 epsilon = privacy_engine.get_epsilon(extra_prior_kwargs_dict.get('delta', 1e-5))
                 if verbose:
                     print("DP Epsilon is now: ", epsilon)
-                res_dict['epsilon'] = epsilon
+                res_dict['epsilon_budget'] = epsilon
             LONG_VAL_EP = ((epoch - 1) % validation_period == 0)
             if real_prior:
                 vrun_dl = get_subset_dl(LONG_VAL_EP=LONG_VAL_EP)
@@ -1239,7 +1243,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 #     delattr(dataset, "ssm")
                 #load data
                 extra_prior_kwargs_dict['preprocess_type'] = np.random.choice(['none', 'power_all', 'robust_all', 'quantile_all'])
-                X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds = make_datasets(extra_prior_kwargs_dict, do_permute=not_zs, bptt=bptt, steps_per_epoch=steps_per_epoch)
+                X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds = make_datasets(extra_prior_kwargs_dict, do_permute=not_zs, bptt=bptt, steps_per_epoch=steps_per_epoch, do_private=private_data)
                 old_bptt = bptt
                 dl, val_dl, test_dl, bptt, data_for_fitting  = make_dataloaders(bptt=bptt)
                 if old_bptt != bptt:

@@ -344,6 +344,7 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
                         , 'permute_feature_position_in_ensemble': config.get('permute_feature_position_in_ensemble', False)
                         , 'bagging': config.get('bagging', False)
                         , 'private_model': config.get('private_model', False)
+                        , 'private_data': config.get('private_data', False)
                         , 'epsilon': config.get('epsilon', 50)
                         , 'delta': config.get('delta', 1e-5)
                         , 'gradnorm': config.get('gradnorm', 1.2)

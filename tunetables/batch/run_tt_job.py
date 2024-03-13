@@ -104,6 +104,11 @@ def main_f(args):
             if args.verbose:
                 print(f"Adaptive bptt: setting bptt to {new_bptt}")
             args.bptt = new_bptt
+        if args.adaptive_delta:
+            new_delta = max(1.0 / n_samples, 1e-5)
+            if args.verbose:
+                print(f"Adaptive delta: setting delta to {new_delta}")
+            args.edg = f"{args.edg.split(' ')[0]} {new_delta} {args.edg.split(' ')[2]}"
         all_res = {}
         all_res_d = {}
         # if n_features > MAX_FEATURES:
@@ -133,40 +138,40 @@ def main_f(args):
         #CASE 2: small datasets
         elif n_samples <= MAX_SAMPLES:
             if skip_fs:
-                if args.privacy_sweep:
-                    tt_tasks = [
-                        "pt10-uniform",
-                        "pt10-uniform-nopp-prop",
-                        "pt10-uniform-kl-nopp",
-                        "pt10-uniform-kl-nopp-prop",
-                    ]
-                else:
-                    tt_tasks = [
-                        'zs-random-32',
-                        # 'zs-preproc-random-32',
-                        'pt10-short-lowlr-prop',
-                        'pt10-uniform-kl-nopp',
-                        'pt10-uniform-kl-nopp-prop',
-                    ]
+                # if args.privacy_sweep:
+                #     tt_tasks = [
+                #         "pt10-uniform",
+                #         "pt10-uniform-nopp-prop",
+                #         "pt10-uniform-kl-nopp",
+                #         "pt10-uniform-kl-nopp-prop",
+                #     ]
+                # else:
+                tt_tasks = [
+                    'zs-random-32',
+                    # 'zs-preproc-random-32',
+                    'pt10-short-lowlr-prop',
+                    'pt10-uniform-kl-nopp',
+                    'pt10-uniform-kl-nopp-prop',
+                ]
                 # if n_samples > LOW_MAX_SAMPLES:
                 #     tt_tasks.append('pt1000-10ens-randinit-avg-top1-unif-reseed-stopearly')
             else:
                 tt_tasks = []
-                if args.privacy_sweep:
-                    for fsm in feat_sel_method:
-                        tt_tasks.append(f'pt10-uniform-{fsm}')
-                        tt_tasks.append(f'pt10-uniform-nopp-prop-{fsm}')
-                        tt_tasks.append(f'pt10-uniform-kl-nopp-{fsm}')
-                        tt_tasks.append(f'pt10-uniform-kl-nopp-prop-{fsm}')
-                else:
-                    for fsm in feat_sel_method:
-                        tt_tasks.append(f'zs-{fsm}-32')
-                        # tt_tasks.append(f'zs-preproc-{fsm}-32')
-                        tt_tasks.append(f'pt10-short-lowlr-prop-{fsm}')
-                        tt_tasks.append(f'pt10-uniform-kl-nopp-{fsm}')
-                        tt_tasks.append(f'pt10-uniform-kl-nopp-prop-{fsm}')
-                        # if n_samples > LOW_MAX_SAMPLES:
-                        #     tt_tasks.append(f'pt1000-10ens-randinit-avg-top1-unif-reseed-{fsm}-stopearly')
+                # if args.privacy_sweep:
+                #     for fsm in feat_sel_method:
+                #         tt_tasks.append(f'pt10-uniform-{fsm}')
+                #         tt_tasks.append(f'pt10-uniform-nopp-prop-{fsm}')
+                #         tt_tasks.append(f'pt10-uniform-kl-nopp-{fsm}')
+                #         tt_tasks.append(f'pt10-uniform-kl-nopp-prop-{fsm}')
+                # else:
+                for fsm in feat_sel_method:
+                    tt_tasks.append(f'zs-{fsm}-32')
+                    # tt_tasks.append(f'zs-preproc-{fsm}-32')
+                    tt_tasks.append(f'pt10-short-lowlr-prop-{fsm}')
+                    tt_tasks.append(f'pt10-uniform-kl-nopp-{fsm}')
+                    tt_tasks.append(f'pt10-uniform-kl-nopp-prop-{fsm}')
+                    # if n_samples > LOW_MAX_SAMPLES:
+                    #     tt_tasks.append(f'pt1000-10ens-randinit-avg-top1-unif-reseed-{fsm}-stopearly')
         # CASE 3: large-sample datasets
         elif n_samples > UPPER_CUTOFF:
             if skip_fs:
@@ -207,8 +212,6 @@ def main_f(args):
         #wandb logging for tunetables meta-optimization
         if do_wandb:
             model_string = task_str = "tunetables" + '_split_' + str(split)
-            if args.privacy_sweep:
-                model_string += '_privacy_' + '_edg_' + str(args.edg).replace(" ", "_")
             wandb_group = dataset.strip() + "_" + task_str
             config = dict()
             config['wandb_group'] = wandb_group
@@ -223,6 +226,11 @@ def main_f(args):
             config['n_samples'] = n_samples
             config['upper_cutoff'] = UPPER_CUTOFF
             config['state_dict'] = None
+            if args.privacy_sweep:
+                model_string += '_privacy_' + '_edg_' + str(args.edg).replace(" ", "_")
+                config['epsilon'] = str(args.edg).replace(" ", "_").split("_")[0]
+                config['delta'] = str(args.edg).replace(" ", "_").split("_")[1]
+                config['gradnorm'] = str(args.edg).replace(" ", "_").split("_")[2]
             wandb_init(config, model_string)
             
         start_time = time.time()
@@ -359,7 +367,7 @@ def main_f(args):
                 command.append("--bptt")
                 command.append(str(args.bptt))
         if args.privacy_sweep:
-            command.append("--private_model")
+            command.append("--private_data")
             command.append("--edg")
             command.append(args.edg)
         if args.shuffle_every_epoch:
@@ -517,5 +525,6 @@ if __name__ == '__main__':
     parser.add_argument('--validation_period', type=int, default=0, help='Number of epochs between validation runs.')
     parser.add_argument('--seed', type=int, default=135798642, help='Random seed for reproducibility.')
     parser.add_argument('--privacy_sweep', action='store_true', help='Train with differential privacy.')
+    parser.add_argument('--adaptive_delta', action='store_true', help='Adapt delta for differential privacy.')
     args = parser.parse_args()
     main_f(args)

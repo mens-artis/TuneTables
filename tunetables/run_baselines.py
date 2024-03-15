@@ -129,10 +129,6 @@ def run_eval(dataset_name, base_path, max_time):
 
         # Run evaluation
         for method in methods:
-            # if method == 'lightgbm':
-            #     metric_used = tabular_metrics.cross_entropy
-            # else:
-            #     metric_used = tabular_metrics.auc_metric
             config['method'] = method
             config['split'] = i
             config['n_configs'] = 100
@@ -141,15 +137,6 @@ def run_eval(dataset_name, base_path, max_time):
             wandb.init(config=config, name=model_string, group='baselines',
                 project='tt-dp', entity='nyu-dice-lab')
             num_classes = len(np.unique(y_train))
-
-            # if num_classes == 2 and method == 'lightgbm':
-            #     #convert to 1-class problem
-            #     print("y_train: ", y_train[:10])
-            #     print("shape: ", y_train.shape)
-            #     y_train = y_train == 1
-            #     print("y_train: ", y_train[:10])
-            #     print("shape: ", y_train.shape)
-            #     raise NotImplementedError("LightGBM binary classification not implemented")
             results = dict()
             # try:
             start_time = time.time()
@@ -157,17 +144,7 @@ def run_eval(dataset_name, base_path, max_time):
             end_time = time.time()
             run_time = end_time - start_time
             results[f'Run_Time'] = np.round(run_time, 3).item()
-            # except Exception as e:
-            #     print("Error running method: ", e)
-            #     wandb.finish()
-            #     continue
-
             outputs = outputs[:, 0:num_classes]
-            #numpy softmax
-            # outputs = np.exp(outputs) / np.sum(np.exp(outputs), axis=1, keepdims=True)
-            # # assert outputs sum to 1
-            # assert np.allclose(np.sum(outputs, axis=1), np.ones(outputs.shape[0])), "Outputs do not sum to 1"
-
             predictions = np.argmax(outputs, axis=1)
 
             # Divide outputs and predictions into val and test splits

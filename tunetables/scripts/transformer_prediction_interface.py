@@ -658,6 +658,8 @@ class TuneTablesClassifier(BaseEstimator, ClassifierMixin):
         args.real_data_qty = 0
         args.summerize_after_prep = False
         args.kl_loss = False
+        args.private_model = False
+        args.private_data = False
 
         return args
 

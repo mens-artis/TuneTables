@@ -71,19 +71,6 @@ class TabDS(Dataset):
         #(X,y) data, y target, single_eval_pos
         ret_item = tuple([self.X[idx], self.y_float[idx]]), self.y[idx], torch.tensor([])
         return ret_item
-    
-    def make_private_ds(self, epsilon, delta, sensitivity, seed):
-        # Create a Laplace mechanism
-        if self.mech is None:
-            self.mech = Laplace(epsilon=epsilon, delta=delta, sensitivity=sensitivity, random_state=seed)
-        # Vectorize the function
-            self.vectorized_randomise = np.vectorize(self.mech.randomise)
-
-        # Apply the vectorized function to the array
-        # print("X contents before DP: ", self.X[0:10, 0])
-        self.X = self.vectorized_randomise(self.X)
-        # print("X contents after DP: ", self.X[0:10, 0])
-        # self.X = self.X + self.mech.randomise(np.zeros_like(self.X))
 
 class TabularDataset(object):
     def __init__(
@@ -99,6 +86,8 @@ class TabularDataset(object):
         cat_dims: Optional[list] = None,
         split_indeces: Optional[list] = None,
         split_source: Optional[str] = None,
+        X_eps: Optional[dict] = None,
+        y_eps: Optional[dict] = None,
     ) -> None:
         """
         name: name of the dataset
@@ -153,6 +142,8 @@ class TabularDataset(object):
         self.name = name
         self.X = X
         self.y = y
+        self.X_eps = X_eps
+        self.y_eps = y_eps
         self.cat_idx = cat_idx
         self.target_type = target_type
         self.num_classes = num_classes
@@ -205,12 +196,21 @@ class TabularDataset(object):
         }
 
     @classmethod
-    def read(cls, p: Path):
+    def read(cls, p: Path, epsilon_vals : Optional[list] = None):
         """read a dataset from a folder"""
 
         # make sure that all required files exist in the directory
         X_path = p.joinpath("X.npy.gz")
         y_path = p.joinpath("y.npy.gz")
+
+        X_epsilons = {}
+        y_epsilons = {}
+        if epsilon_vals is not None:
+            for epsilon_val in epsilon_vals:
+                epsilon_val = str(epsilon_val)
+                X_epsilons[epsilon_val] = p.joinpath(f"X_eps_{epsilon_val}.npy.gz")
+                y_epsilons[epsilon_val] = p.joinpath(f"y_eps_{epsilon_val}.npy.gz")
+
         metadata_path = p.joinpath("metadata.json")
         split_indeces_path = p / "split_indeces.npy.gz"
 
@@ -231,11 +231,18 @@ class TabularDataset(object):
         with gzip.GzipFile(split_indeces_path, "rb") as f:
             split_indeces = np.load(f, allow_pickle=True)
 
+        for k, v in X_epsilons.items():
+            with gzip.GzipFile(v, "r") as f:
+                X_epsilons[k] = np.load(f, allow_pickle=True)
+        for k, v in y_epsilons.items():
+            with gzip.GzipFile(v, "r") as f:
+                y_epsilons[k] = np.load(f, allow_pickle=True)
+
         # read metadata
         with open(metadata_path, "r") as f:
             kwargs = json.load(f)
 
-        kwargs["X"], kwargs["y"], kwargs["split_indeces"] = X, y, split_indeces
+        kwargs["X"], kwargs["y"], kwargs["split_indeces"], kwargs["X_eps"], kwargs["y_eps"] = X, y, split_indeces, X_epsilons, y_epsilons
         return cls(**kwargs)
 
     def write(self, p: Path, overwrite=False) -> None:
@@ -669,9 +676,14 @@ def process_data(
     impute=True,
     args=None,
 ):
-
-    X_train, y_train = dataset.X[train_index], dataset.y[train_index]
-    X_val, y_val = dataset.X[val_index], dataset.y[val_index]
+    if args.private_data:
+        X_train, y_train = dataset.X_eps[args.epsilon][train_index], dataset.y_eps[args.epsilon][train_index]
+    else:
+        X_train, y_train = dataset.X[train_index], dataset.y[train_index]
+    if args.private_val:
+        X_val, y_val = dataset.X_eps[args.epsilon][val_index], dataset.y_eps[args.epsilon][val_index]
+    else:
+        X_val, y_val = dataset.X[val_index], dataset.y[val_index]
     X_test, y_test = dataset.X[test_index], dataset.y[test_index]
 
     # validate the scaler
@@ -744,8 +756,8 @@ def process_data(
         X_val = np.concatenate([new_x1_val, X_val[:, num_mask]], axis=1)
         if verbose:
             print("New Shape:", X_train.shape)
-
-    args.num_features = X_train.shape[1]
+    if args is not None:
+        args.num_features = X_train.shape[1]
     # create subset of dataset if needed
     if (
         args is not None

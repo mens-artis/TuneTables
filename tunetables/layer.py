@@ -136,7 +136,7 @@ class TransformerEncoderLayer(Module):
             src2 = torch.cat([src_left, src_right], dim=0)
         else:
             if self.recompute_attn:
-                src2 = checkpoint(self.self_attn, src_, src_, src_, src_key_padding_mask, True, src_mask)[0]
+                src2 = checkpoint(self.self_attn, src_, src_, src_, src_key_padding_mask, True, src_mask, use_reentrant=True)[0]
             else:
                 src2 = self.self_attn(src_, src_, src_, attn_mask=src_mask,
                                       key_padding_mask=src_key_padding_mask)[0]

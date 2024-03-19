@@ -164,6 +164,9 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         args.summerize_after_prep = extra_prior_kwargs_dict.get("summerize_after_prep", "False")
         args.preprocess_type = extra_prior_kwargs_dict.get("preprocess_type", "none")
         args.rand_seed = extra_prior_kwargs_dict.get('rand_seed', 0)
+        args.private_data = private_ds
+        args.epsilon = str(extra_prior_kwargs_dict.get('epsilon', 0.0))
+        args.private_val = extra_prior_kwargs_dict.get('private_val', False)
 
         if is_wrapper:
             train_index = dataset.split_indeces[0]
@@ -301,12 +304,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         train_ds = TabDS(X, y)
         val_ds = TabDS(X_val, y_val)
         test_ds = TabDS(X_test, y_test)
-
-        if private_ds:
-            eps = extra_prior_kwargs_dict.get('epsilon', 1.0)
-            delta = extra_prior_kwargs_dict.get('delta', 1e-5)
-            sensitivity = extra_prior_kwargs_dict.get('max_grad_norm', 1.0)
-            train_ds.make_private_ds(eps, delta, sensitivity, extra_prior_kwargs_dict.get('rand_seed', 0))
 
         return X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds
 
@@ -457,7 +454,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         raise Exception("Excepted a real dataset")
 
     if do_zs:
-        return "", res_dict
+        return "", res_dict, None, None
 
     encoder = encoder_generator(num_features, emsize)
     #style_def = dl.get_test_batch()[0][0] # the style in batch of the form ((style, x, y), target, single_eval_pos)
@@ -1050,7 +1047,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         return_outputs = None
         return_targets = None
         res_dict = None
-        best_val_score = best_val_score_nc = 0
+        best_val_score = best_val_score_nc = -1.0
         if do_prompt_tuning:
             best_val_embed = t_model.prefix_embedding.weight.detach().cpu()
         best_res_dict = None

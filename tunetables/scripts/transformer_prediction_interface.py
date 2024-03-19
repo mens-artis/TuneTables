@@ -537,10 +537,10 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
             warnings.filterwarnings("ignore",
                                     message="torch.cuda.amp.autocast only affects CUDA ops, but CUDA is not available.  Disabling.")
             if device == 'cpu':
-                output_batch = checkpoint(predict, batch_input, batch_label, style_, softmax_temperature_, True)
+                output_batch = checkpoint(predict, batch_input, batch_label, style_, softmax_temperature_, True, use_reentrant=True)
             else:
                 with torch.cuda.amp.autocast(enabled=fp16_inference):
-                    output_batch = checkpoint(predict, batch_input, batch_label, style_, softmax_temperature_, True)
+                    output_batch = checkpoint(predict, batch_input, batch_label, style_, softmax_temperature_, True, use_reentrant=True)
         outputs += [output_batch]
     #print('MODEL INFERENCE TIME ('+str(batch_input.device)+' vs '+device+', '+str(fp16_inference)+')', str(time.time()-start))
 
@@ -660,6 +660,7 @@ class TuneTablesClassifier(BaseEstimator, ClassifierMixin):
         args.kl_loss = False
         args.private_model = False
         args.private_data = False
+        args.edg = ["50", "1e-4", "1.2"]
 
         return args
 

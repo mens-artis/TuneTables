@@ -366,7 +366,10 @@ def main_f(args):
                 command.append("--bptt")
                 command.append(str(args.bptt))
         if args.privacy_sweep:
-            command.append("--private_data")
+            if args.private_data:
+                command.append("--private_data")
+            if args.private_val_data:
+                command.append("--private_val_data")
             command.append("--edg")
             command.append(args.edg)
         if args.shuffle_every_epoch:
@@ -523,7 +526,9 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=0, help='Number of epochs to run.')
     parser.add_argument('--validation_period', type=int, default=0, help='Number of epochs between validation runs.')
     parser.add_argument('--seed', type=int, default=135798642, help='Random seed for reproducibility.')
-    parser.add_argument('--privacy_sweep', action='store_true', help='Train with differential privacy.')
+    parser.add_argument('--privacy_sweep', action='store_true', help='Train with a differentially private tuned model.')
+    parser.add_argument('--private_data', action='store_true', help='Train with differentially privatized synthetic data.')
+    parser.add_argument('--private_val_data', action='store_true', help='Validate with differential privacy.')
     parser.add_argument('--adaptive_delta', action='store_true', help='Adapt delta for differential privacy.')
     args = parser.parse_args()
     main_f(args)

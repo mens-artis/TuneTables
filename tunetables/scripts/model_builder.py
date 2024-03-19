@@ -275,9 +275,17 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
             prior_hyperparameters = {}
             use_style = False
         else:
-            dataset = TabularDataset.read(Path(config['data_path']).resolve())
+            eps = config.get('epsilon', None)
+            private_data = config.get('private_data', None)
+            if eps is not None and private_data is not None:
+                epsilon_vals = [eps]
+            else:
+                epsilon_vals = None
+            dataset = TabularDataset.read(p=Path(config['data_path']).resolve(), 
+                                         epsilon_vals=epsilon_vals)
             prior_hyperparameters = {}
             use_style = False
+
 
     #Priors == DataLoaders (synthetic)
     if config['prior_type'] == 'prior_bag':
@@ -380,6 +388,7 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
                         , 'bagging': config.get('bagging', False)
                         , 'private_model': config.get('private_model', False)
                         , 'private_data': config.get('private_data', False)
+                        , 'private_val': config.get('private_val', False)
                         , 'epsilon': config.get('epsilon', 50)
                         , 'delta': config.get('delta', 1e-5)
                         , 'gradnorm': config.get('gradnorm', 1.2)

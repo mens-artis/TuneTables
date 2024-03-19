@@ -1,1 +1,5 @@
+openml__breast-cancer__145799
+openml__balance-scale__11
 openml__colic__27
+openml__dresses-sales__125920
+openml__ecoli__145977

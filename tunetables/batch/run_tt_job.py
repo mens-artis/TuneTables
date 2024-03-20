@@ -213,7 +213,7 @@ def main_f(args):
             model_string = task_str = "tunetables" + '_split_' + str(split)
             wandb_group = dataset.strip() + "_" + task_str
             config = dict()
-            config['wandb_group'] = wandb_group
+            config['wandb_group'] = args.wandb_group = wandb_group
             config['wandb_project'] = args.wandb_project
             config['wandb_entity'] = args.wandb_entity
             config['tt_tasks'] = tt_tasks
@@ -227,6 +227,10 @@ def main_f(args):
             config['state_dict'] = None
             if args.privacy_sweep:
                 model_string += '_privacy_' + '_edg_' + str(args.edg).replace(" ", "_")
+                if args.private_data:
+                    model_string += '_private_data'
+                if args.private_val_data:
+                    model_string += '_private_val_data'
                 config['epsilon'] = str(args.edg).replace(" ", "_").split("_")[0]
                 config['delta'] = str(args.edg).replace(" ", "_").split("_")[1]
                 config['gradnorm'] = str(args.edg).replace(" ", "_").split("_")[2]
@@ -353,7 +357,14 @@ def main_f(args):
                 val = str(v)
                 if val != '':
                     addl_args.append(val)
-            command = ['python', base_cmd, '--data_path', dataset_path, '--split', str(split), '--real_data_qty', str(args.real_data_qty), '--wandb_group', "\"" + dataset.strip() + "_" + task_str + "\""] + addl_args
+            command = ['python', base_cmd, 
+                       '--data_path', dataset_path, 
+                       '--split', str(split), 
+                       '--real_data_qty', 
+                       str(args.real_data_qty), 
+                       '--wandb_group', 
+                       "\"" + dataset.strip() + "_" + task_str + "\""
+                       ] + addl_args
             if args.run_optuna:
                 if args.wandb_log and args.wandb_project == '':
                     command = command + ["--wandb_project", args.wandb_project] 
@@ -446,7 +457,7 @@ def main_f(args):
         for split in args.splits:
             for task in tasks:
                 for edgval in edg_vals:
-                    args.edg = str(edgval) + " " + "1e-4" + " " + "1.2"
+                    args.edg = str(edgval) + " " + "1e-4" + " " + "1.2"    
                     if 'tunetables' in task and args.gcp_run:
                         task_args = [
                             "--splits", str(split),

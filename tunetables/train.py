@@ -585,6 +585,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         single_eval_pos = len(td[0])
         softmax_temperature = softmax_temperature.to(device)
         # print("In real data eval, eval set size: ", len(val_dl.dataset))
+
         with torch.inference_mode():
             # correct = 0
             # total = len(val_dl.dataset)
@@ -592,6 +593,9 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             target_list = []
             output_list = []
             for batch, (data, targets, _) in enumerate(val_dl):
+
+                if batch == 0 and verbose:
+                    print("Data sample (train features, train labels, val/test features, val/test labels): ", td[0][:10], "\n", td[1][:10], "\n" , data[0][:10], "\n", data[1][:10], "\n")
                 
                 if extra_prior_kwargs_dict.get('debug', False):
                     # Extra safeguard against test set contamination, permute label order before passing into model
@@ -731,7 +735,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     elif isinstance(criterion, nn.CrossEntropyLoss):
                         losses = criterion(output.reshape(-1, n_out), targets.to(device).long().flatten())
                     elif do_kl_loss:
-                        #TODO: investigate shape mismatches
                         real_data_preds = eval_model.predict_proba(data[0])
                         if real_data_preds.shape[1] < output.shape[1]:
                             real_data_preds = np.concatenate([real_data_preds, np.zeros((real_data_preds.shape[0], output.shape[1] - real_data_preds.shape[1]))], axis=1)

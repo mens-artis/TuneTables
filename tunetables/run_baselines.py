@@ -58,7 +58,7 @@ def eval_method(splits, device, method, cat_idx, metric_used, max_time=300):
     
     return outputs, best_configs
 
-def run_eval(dataset_name, base_path, max_time):
+def run_eval(dataset_name, base_path, max_time, epsilon):
     print("Running evaluation for dataset: ", dataset_name)
 
     metrics = [tabular_metrics.auc_metric, tabular_metrics.cross_entropy]
@@ -90,8 +90,16 @@ def run_eval(dataset_name, base_path, max_time):
 
     # with open(metadata_path) as f:
     #     metadata = json.load(f)
+    if epsilon is None:
+        args.private_data = False
+        dataset = TabularDataset.read(Path(dataset_path).resolve())
+    else:
+        args.private_data = True
+        args.epsilon = epsilon
+        epsilon_vals = [epsilon]
+        dataset = TabularDataset.read(p=Path(dataset_path).resolve(), 
+                                        epsilon_vals=epsilon_vals)
 
-    dataset = TabularDataset.read(Path(dataset_path).resolve())
     for i, split_dictionary in enumerate(dataset.split_indeces):
         # TODO: make stopping index a hyperparameter
         train_index = split_dictionary["train"]
@@ -109,8 +117,9 @@ def run_eval(dataset_name, base_path, max_time):
             one_hot_encode=False,
             args=args,
         )
+
         X_train, y_train = processed_data["data_train"]
-        X_val, y_val = processed_data["data_val"]
+        X_val, y_val = processed_data["data_val"]    
         X_test, y_test = processed_data["data_test"]
 
         #convert numpy arrays to torch tensors
@@ -135,7 +144,7 @@ def run_eval(dataset_name, base_path, max_time):
             model_string = f"{dataset_name}" + '_' + f"{method}" + '_split_' + f"{i}" + '_' + datetime.now().strftime("%m_%d_%Y_%H_%M_%S")
             wandb.login(key=get_wandb_api_key())
             wandb.init(config=config, name=model_string, group='baselines',
-                project='tt-dp', entity='nyu-dice-lab')
+                project='tt-dp-strongbaselines', entity='nyu-dice-lab')
             num_classes = len(np.unique(y_train))
             results = dict()
             # try:
@@ -199,6 +208,8 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_path', type=str, default='./tunetables/data')
     parser.add_argument('--datasets', type=str, default='./tunetables/metadata/subset.txt', help='Path to datasets text file')
     parser.add_argument('--max_time', type=int, default=300, help='Allowed run time (in seconds)')
+    parser.add_argument('--privacy_sweep', action='store_true', help='Run privacy sweep')
+    parser.add_argument('--rand_seed', type=int, default=42, help='Random seed')
 
     args = parser.parse_args()
 
@@ -206,4 +217,9 @@ if __name__ == '__main__':
         datasets = f.readlines()
     for dataset in datasets:
         dataset = dataset.strip()
-        run_eval(dataset, args.dataset_path, args.max_time)
+        epsilon = None
+        if args.privacy_sweep:
+            for tgt_eps in ["0.01", "0.1", "0.5", "1.0", "5.0"]:
+                run_eval(dataset, args.dataset_path, args.max_time, tgt_eps)
+        else:
+            run_eval(dataset, args.dataset_path, args.max_time, epsilon)

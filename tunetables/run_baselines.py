@@ -135,8 +135,9 @@ def run_eval(dataset_name, base_path, max_time, epsilon, local_args):
     config['methods'] = ", ".join(str(x) for x in methods)
     config['subset_features'] = -1
     config['subset_rows'] = -1
-
-    args = argparse.Namespace(**config, **vars(local_args))
+    # merge config and vars(local_args)
+    config.update(vars(local_args))
+    args = argparse.Namespace(**config)
 
     # Get dataset
     dataset_path = os.path.join(base_path, dataset_name)
@@ -200,9 +201,9 @@ def run_eval(dataset_name, base_path, max_time, epsilon, local_args):
             config['method'] = method
             config['split'] = i
             config['n_configs'] = 100
-            model_string = f"{dataset_name}" + '_' + f"{method}" + '_split_' + f"{i}" + '_' + datetime.now().strftime("%m_%d_%Y_%H_%M_%S")
-            # if args.privacy_sweep:
-            #     model_string += f'_eps_{epsilon}'
+            model_string = f"{dataset_name}" + '_' + f"{method}" + '_split_' + f"{i}"
+            if args.privacy_sweep:
+                model_string += f'_eps_{epsilon}'
             wandb.login(key=get_wandb_api_key())
             wandb.init(config=config, name=model_string, group='baselines',
                 project='tt-dp-strongbaselines', entity='nyu-dice-lab')

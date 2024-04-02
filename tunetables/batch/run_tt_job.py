@@ -18,7 +18,7 @@ import torch
 MAX_CLASSES = 10
 MAX_FEATURES = 100
 LOW_MAX_SAMPLES = 1000
-MAX_SAMPLES = 3000
+MAX_SAMPLES = 4000
 
 def is_json_serializable(obj):
     """
@@ -84,7 +84,7 @@ def main_f(args):
 
     def run_tunetables(dataset_path, task, split, log_dir, args, base_cmd, gcp_txt, do_wandb):
         if task == "tunetables-long":
-            UPPER_CUTOFF = 1e10
+            UPPER_CUTOFF = 100000000
         elif task == "tunetables-short":
             UPPER_CUTOFF = 10000
         elif "tunetables" in task:
@@ -356,6 +356,9 @@ def main_f(args):
                 except:
                     pass
                 task_str += '_npad'
+            if args.mlp_tuning:
+                next_task['mlp_tuning'] = ''
+                task_str += '_mlp_tuning'
             addl_args = []
             for k, v in next_task.items():
                 addl_args.append("--" + k)
@@ -462,6 +465,8 @@ def main_f(args):
                         ]
                         if args.adaptive_bptt:
                             task_args = task_args + ["--adaptive_bptt"]
+                        if args.mlp_tuning:
+                            task_args = task_args + ["--mlp_tuning"]
                         if args.bptt > -1:
                             task_args = task_args + ["--bptt", str(args.bptt)]
                         if args.epochs > 0:
@@ -535,5 +540,6 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=135798642, help='Random seed for reproducibility.')
     parser.add_argument('--privacy_sweep', action='store_true', help='Train with differential privacy.')
     parser.add_argument('--adaptive_delta', action='store_true', help='Adapt delta for differential privacy.')
+    parser.add_argument('--mlp_tuning', action='store_true', help='Run MLP tuning.')
     args = parser.parse_args()
     main_f(args)

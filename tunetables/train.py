@@ -33,6 +33,7 @@ from tunetables.losses import kl_divergence
 import tunetables.encoders as encoders
 import tunetables.positional_encodings as positional_encodings
 from tunetables.utils import init_dist, seed_all, EmbeddingConcatenator
+from tunetables.models import VMLP
 
 def real_data_eval_out(r_model, cl=1000, train_data=None, val_dl=None, softmax_temperature = torch.log(torch.tensor([0.8])), return_probs=False):
 
@@ -143,6 +144,14 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     else:
         do_prompt_tuning = False
         prefix_size = 0
+    
+    if extra_prior_kwargs_dict.get('mlp_tuning'):
+        do_mlp_tuning = True
+        if not do_kl_loss:
+            print("MLP tuning requires KL loss for now, setting KL loss to True.")
+            do_kl_loss = True
+    else:
+        do_mlp_tuning = False
 
     single_eval_pos_gen = single_eval_pos_gen if callable(single_eval_pos_gen) else lambda: single_eval_pos_gen
     real_data_qty = extra_prior_kwargs_dict.get('real_data_qty', 0)
@@ -255,7 +264,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
 
         # label balancing
         num_classes = len(np.unique(np.unique(y)))
-        if do_prompt_tuning and extra_prior_kwargs_dict.get('tuned_prompt_label_balance', 'equal') == 'proportional':
+        if (do_prompt_tuning or do_mlp_tuning) and extra_prior_kwargs_dict.get('tuned_prompt_label_balance', 'equal') == 'proportional':
             int_y = y.astype(int)
             label_weights = np.bincount(int_y) / len(int_y)
             label_weights = torch.from_numpy(label_weights).float().to(device)
@@ -340,6 +349,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         data_for_fitting = None
         X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds = make_datasets(extra_prior_kwargs_dict, do_permute=not_zs, bptt=bptt, steps_per_epoch=steps_per_epoch, is_wrapper=is_wrapper)
         old_bptt = bptt
+
+        #MAKE DATALOADERS
         dl, val_dl, test_dl, bptt, data_for_fitting  = make_dataloaders(bptt=bptt, not_zs=not_zs)
 
         if epochs == 0:
@@ -494,6 +505,12 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     params_to_optimize = []
     if do_prompt_tuning:
         params_to_optimize.append("prefix_embedding")
+    if do_mlp_tuning:
+        #next(iter(data_loader))
+        n_samples, n_features = dl.dataset.X.shape
+        #input size: tuple (unif_bptt, n_feats), hidden layers (list), output size, activation function
+        mlpmodel = VMLP((1, n_features), [emsize * 3], 10)
+        mlpmodel.to(device)
     if encoder_mismatch:
         params_to_optimize.append("encoder")
     if decoder_mismatch:
@@ -522,7 +539,10 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         lr = get_openai_lr(model)
         if verbose:
             print(f"Using OpenAI max lr of {lr}.")
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    if do_mlp_tuning:
+        optimizer = torch.optim.AdamW([{'params': model.parameters()}, {'params': mlpmodel.parameters()}], lr=lr, weight_decay=weight_decay)
+    else:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     sched_obj = scheduler(optimizer, warmup_epochs, epochs if epochs is not None else 100) # when training for fixed time lr schedule takes 100 steps
 
     scaler = GradScaler() if train_mixed_precision else None
@@ -547,6 +567,12 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             prediction_list = []
             target_list = []
             output_list = []
+
+            if do_mlp_tuning:
+                mlp_prediction_list = []
+                mlp_target_list = []
+                mlp_output_list = []
+
             for batch, (data, targets, _) in enumerate(val_dl):
                 
                 if extra_prior_kwargs_dict.get('debug', False):
@@ -555,6 +581,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     data[1] = data[1].view(-1)[data_temp_idx].view(data[1].size())
 
                 batch_data = tuple([torch.cat((td[0], data[0]), dim=0).to(torch.float32), torch.cat((td[1], data[1]), dim=0).to(torch.float32)])
+
+                #main model preds
                 output = r_model(tuple(e.to(device) if torch.is_tensor(e) else e for e in batch_data) if isinstance(batch_data, tuple) else batch_data.to(device)
                     , single_eval_pos=single_eval_pos)
                 #invert permutation of labels
@@ -566,15 +594,33 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 _, predicted = torch.max(output.cpu().data, 1)
                 prediction_list.append(predicted)
                 target_list.append(targets)
+
+                #mlp model preds
+                if do_mlp_tuning:
+                    mlp_output = mlpmodel(data[0].to(device))
+                    mlp_output_list.append(mlp_output)
+                    output = loop_translate(mlp_output, invert_perm_map)
+                    output = output[:, 0:num_classes_local] / torch.exp(softmax_temperature)
+                    output = torch.nn.functional.softmax(output, dim=-1)
+                    _, mlp_predicted = torch.max(mlp_output.cpu().data, 1)
+                    mlp_prediction_list.append(mlp_predicted)
+                    mlp_target_list.append(targets)
+
             outputs = torch.cat(output_list, dim=0).cpu().numpy()
             predictions = torch.cat(prediction_list, dim=0).cpu().numpy()
             targets = torch.cat(target_list, dim=0).cpu().numpy()
+
+            if do_mlp_tuning:
+                mlp_outputs = torch.cat(mlp_output_list, dim=0).cpu().numpy()
+                mlp_predictions = torch.cat(mlp_prediction_list, dim=0).cpu().numpy()
+                mlp_targets = torch.cat(mlp_target_list, dim=0).cpu().numpy()
             # print("In real data eval, Targets: ", targets[:20])
 
         results = dict()
         warnings.filterwarnings("ignore")
         results['Eval_Time'] = np.round(time.time() - start_time, 3).item()
         results['Accuracy'] = np.round(accuracy_score(targets, predictions), 3).item()
+        results['Accuracy_MLP'] = np.round(accuracy_score(mlp_targets, mlp_predictions), 3).item() if do_mlp_tuning else 0.0
         try:
             results['Log_Loss'] = np.round(log_loss(targets, outputs, labels=np.arange(num_classes_local)), 3).item()
         except Exception as e:
@@ -611,7 +657,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             exit(0)
         e_model.train()  # Turn on the train mode
         # Confirm that the correct params are frozen and unfrozen
-        if do_prompt_tuning:
+        if do_prompt_tuning or do_mlp_tuning:
             e_model.freeze_parameters_except_named(params_to_optimize)
             for n, p in e_model.named_parameters():
                 grad_reqd = False
@@ -672,6 +718,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     
                     # if batch_size > 1:
                     #     output = output.flatten()
+                    if do_mlp_tuning:
+                        mlp_output = mlpmodel(data[0].to(device))
 
                     if not bptt_search:
                         assert output.requires_grad, "Output does not require gradients"
@@ -703,6 +751,9 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                         real_data_preds = torch.tensor(real_data_preds).to(device)
                         assert real_data_preds.shape == output.shape, f"Real data preds and tuned prompt output have different shapes: {real_data_preds.shape} and {output.shape}"
                         losses = criterion(real_data_preds, output)
+                        if do_mlp_tuning:
+                            mlp_losses = criterion(output, mlp_output)
+                            losses += mlp_losses
                     else:
                         losses = criterion(output, targets)
                     if boosting or do_kl_loss:
@@ -1054,7 +1105,18 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     return_targets.append(val_targets)
                     res_dict = dict(res_dict, **{"Val_nc_" + k : v for k, v in val_score_nc.items()})
                 #Early stopping logic
-                if (not extra_prior_kwargs_dict.get('uniform_bptt', False)) \
+                if do_mlp_tuning:
+                    if res_dict.get("Val_Accuracy_MLP", 0) > best_val_score:
+                        if verbose:
+                            print("New best val score MLP: ", res_dict.get("Val_Accuracy_MLP", 0))
+                        patience = 0
+                        best_val_score = res_dict.get("Val_Accuracy_MLP", 0)
+                        is_best = True
+                        #TODO: save weights
+                        # best_val_embed = mlpmodel.weight.detach().cpu()
+                    else:
+                        patience += 1
+                elif (not extra_prior_kwargs_dict.get('uniform_bptt', False)) \
                     and val_score and val_score > best_val_score:
                     if verbose:
                         print("New best val score: ", val_score)
@@ -1072,7 +1134,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     is_best = True
                     best_val_embed = t_model.prefix_embedding.weight.detach().cpu()
                 else:
-                    print(extra_prior_kwargs_dict.get('uniform_bptt', False), bptt <= 128, res_dict.get("Val_nc_Accuracy", 0), best_val_score_nc)
                     patience += 1
             elif hasattr(dl, 'validate') and epoch % validation_period == 0:
                 with torch.no_grad():
@@ -1101,6 +1162,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     f' | nan share {nan_share:5.2f} | ignore share (for classification tasks) {ignore_share:5.4f}'
                     + (f' | val score {val_score}' if val_score is not None else '')
                     + (f' | val score nc {res_dict.get("Val_nc_Accuracy", 0)}' if val_score_nc is not None else '')
+                    + (f' | val score MLP {res_dict.get("Val_Accuracy_MLP", 0)}')
                 )
                 print('-' * 89)
                 if epoch_callback is not None and rank == 0:

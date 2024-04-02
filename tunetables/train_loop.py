@@ -140,6 +140,7 @@ def reload_config(config_type='causal', task_type='multiclass', longer=0, args=N
 
     #prompt tuning
     config['prompt_tuning'] = args.prompt_tuning
+    config['mlp_tuning'] = args.mlp_tuning
     config['tuned_prompt_size'] = args.tuned_prompt_size
     config['tuned_prompt_label_balance'] = args.tuned_prompt_label_balance
 
@@ -284,6 +285,7 @@ def parse_args():
     parser.add_argument('--prior_type', type=str, default="real", help='Type of prior to use (real, prior_bag).')
     parser.add_argument('--data_path', type=str, default=".", help='Path to data.')
     parser.add_argument('--prompt_tuning', action='store_true', help='Whether to tune the prompt.')
+    parser.add_argument('--mlp_tuning', action='store_true', help='Whether to tune the MLP.')
     parser.add_argument('--tuned_prompt_size', type=int, default=0, help='Size of the tuned prompt.')
     parser.add_argument('--tuned_prompt_label_balance', type=str, default='equal', help='Label balance for the tuned prompt (equal, proportional).')
     parser.add_argument('--lr', type=float, default=0.0001, help='Learning rate.')

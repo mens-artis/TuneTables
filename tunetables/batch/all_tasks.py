@@ -50,6 +50,7 @@ pt5_unif_dict['uniform_bptt'] = ''
 pt5_unif_dict['topk_key'] = 'Val_nc_Accuracy'
 pt5_unif_kl_dict = copy.deepcopy(pt5_unif_dict)
 pt5_unif_kl_dict['kl_loss'] = ''
+pt5_unif_kl_dict['lr'] = 0.05
 pt5_unif_kl_nopp_dict = copy.deepcopy(pt5_unif_kl_dict)
 pt5_unif_kl_nopp_dict.pop('do_preprocess')
 pt5_unif_kl_nopp_lowlr_dict = copy.deepcopy(pt5_unif_kl_nopp_dict)
@@ -93,7 +94,7 @@ pt10_unif_dict['uniform_bptt'] = ''
 pt10_unif_dict['topk_key'] = 'Val_nc_Accuracy'
 pt10_unif_kl_dict = copy.deepcopy(pt10_unif_dict)
 pt10_unif_kl_dict['kl_loss'] = ''
-pt10_unif_kl_dict['early_stopping'] = 2
+pt10_unif_kl_dict['lr'] = 0.05
 pt10_unif_kl_nopp_dict = copy.deepcopy(pt10_unif_kl_dict)
 pt10_unif_kl_nopp_dict.pop('do_preprocess')
 pt10_unif_kl_nopp_pca_dict = copy.deepcopy(pt10_unif_kl_nopp_dict)

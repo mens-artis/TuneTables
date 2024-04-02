@@ -370,6 +370,7 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
                         , 'val_subset_size' : config.get('val_subset_size', 10)
                         , 'batch_size_per_gp_sample': config.get('batch_size_per_gp_sample', None)
                         , 'prompt_tuning': config.get('prompt_tuning', False)
+                        , 'mlp_tuning': config.get('mlp_tuning', False)
                         , 'tuned_prompt_size': config.get('tuned_prompt_size', 0)
                         , 'model_string': config.get('model_string', datetime.now().strftime("%m_%d_%Y_%H_%M_%S"))
                         , 'save_path': config.get('base_path', '.')

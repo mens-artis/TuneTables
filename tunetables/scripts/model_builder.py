@@ -452,5 +452,3 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
                   y_wrapper = y_wrapper)
 
     return model, results_dict, data_for_fitting, test_loader
-
-    return model, results_dict

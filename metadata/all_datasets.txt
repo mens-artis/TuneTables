@@ -1,5 +1,4 @@
 openml__blood-transfusion-service-center__10101
-openml__connect-4__146195
 openml__Bioresponse__9910
 openml__breast-cancer__145799
 openml__BNG(labor)__2137
@@ -8,6 +7,7 @@ openml__christine__168908
 openml__Click_prediction_small__7294
 openml__climate-model-simulation-crashes__146819
 openml__colic__27
+openml__connect-4__146195
 openml__dilbert__168909
 openml__dresses-sales__125920
 openml__ecoli__145977

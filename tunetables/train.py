@@ -35,6 +35,22 @@ import tunetables.positional_encodings as positional_encodings
 from tunetables.utils import init_dist, seed_all, EmbeddingConcatenator
 from tunetables.models import VMLP
 
+def _parse_args(config_parser, parser):
+    # Do we have a config file to parse?
+    args_config, remaining = config_parser.parse_known_args()
+    if args_config.config:
+        with open(args_config.config, 'r') as f:
+            cfg = yaml.safe_load(f)
+            parser.set_defaults(**cfg)
+
+    # The main arg parser parses the rest of the args, the usual
+    # defaults will have been overridden if config file specified.
+    args = parser.parse_args(remaining)
+
+    # Cache the args as a text string to save them in the output dir later
+    args_text = yaml.safe_dump(args.__dict__, default_flow_style=False)
+    return args, args_text
+
 def real_data_eval_out(r_model, cl=1000, train_data=None, val_dl=None, softmax_temperature = torch.log(torch.tensor([0.8])), return_probs=False):
 
         verbose = False
@@ -125,7 +141,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     using_dist, rank, device = init_dist(device)
     start_time = time.time()
     max_time = extra_prior_kwargs_dict.get('max_time', 0)
-    do_kl_loss = extra_prior_kwargs_dict.get('kl_loss', False)
+    base_model_kl_loss = do_kl_loss = extra_prior_kwargs_dict.get('kl_loss', False)
     n_workers = extra_prior_kwargs_dict.get('num_workers', 1)
 
     if extra_prior_kwargs_dict.get('pad_features', None):
@@ -460,7 +476,11 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     style_def = None
     #print(f'Style definition of first 3 examples: {style_def[:3] if style_def is not None else None}')
     style_encoder = style_encoder_generator(style_def.shape[1], emsize) if (style_def is not None) else None
-    if do_kl_loss:
+    if do_mlp_tuning and not base_model_kl_loss:
+        assert num_classes < 11, "KL loss with TabPFN-zs only supports 10 classes or fewer"
+        n_out = 10
+        mlp_criterion = kl_divergence
+    elif do_kl_loss:
         assert num_classes < 11, "KL loss with TabPFN-zs only supports 10 classes or fewer"
         n_out = 10
         criterion = kl_divergence
@@ -480,7 +500,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     if load_weights_from_this_state_dict is not None:
         encoder_mismatch = False
         decoder_mismatch = False
-        if do_kl_loss:
+        if base_model_kl_loss:
             load_weights_from_this_state_dict.pop('criterion.weight')
         if num_classes > 10:
             #initialize a new decoder head
@@ -620,7 +640,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         warnings.filterwarnings("ignore")
         results['Eval_Time'] = np.round(time.time() - start_time, 3).item()
         results['Accuracy'] = np.round(accuracy_score(targets, predictions), 3).item()
-        results['Accuracy_MLP'] = np.round(accuracy_score(mlp_targets, mlp_predictions), 3).item() if do_mlp_tuning else 0.0
+        results['Accuracy_MLP'] = np.round(accuracy_score(mlp_targets, mlp_predictions), 3).item() if do_mlp_tuning else -1.0
         try:
             results['Log_Loss'] = np.round(log_loss(targets, outputs, labels=np.arange(num_classes_local)), 3).item()
         except Exception as e:
@@ -737,6 +757,9 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                         losses = criterion(output.flatten(), targets.to(device).flatten())
                     elif isinstance(criterion, nn.CrossEntropyLoss):
                         losses = criterion(output.reshape(-1, n_out), targets.to(device).long().flatten())
+                    elif do_mlp_tuning and not base_model_kl_loss:
+                        losses = criterion(output.reshape(-1, n_out), targets.to(device).long().flatten())
+                        losses += mlp_criterion(output, mlp_output)
                     elif do_kl_loss:
                         #TODO: investigate shape mismatches
                         real_data_preds = eval_model.predict_proba(data[0])
@@ -752,8 +775,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                         assert real_data_preds.shape == output.shape, f"Real data preds and tuned prompt output have different shapes: {real_data_preds.shape} and {output.shape}"
                         losses = criterion(real_data_preds, output)
                         if do_mlp_tuning:
-                            mlp_losses = criterion(output, mlp_output)
-                            losses += mlp_losses
+                            losses += criterion(output, mlp_output)                           
                     else:
                         losses = criterion(output, targets)
                     if boosting or do_kl_loss:
@@ -1175,7 +1197,9 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     if extra_prior_kwargs_dict.get('wandb_log', False):
                         import wandb
                         wandb.log(res_dict, step=len(master_epoch_count), commit=True)
-                    if is_best:
+                    if is_best or \
+                        (NO_PATIENCE and best_res_dict is None) or \
+                        (epoch == 1):
                         best_res_dict = res_dict
                         best_outputs = return_outputs
                         best_targets = return_targets
@@ -1451,22 +1475,14 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
 
     return model, best_results, data_for_fitting, None
 
-def _parse_args(config_parser, parser):
-    # Do we have a config file to parse?
-    args_config, remaining = config_parser.parse_known_args()
-    if args_config.config:
-        with open(args_config.config, 'r') as f:
-            cfg = yaml.safe_load(f)
-            parser.set_defaults(**cfg)
 
-    # The main arg parser parses the rest of the args, the usual
-    # defaults will have been overridden if config file specified.
-    args = parser.parse_args(remaining)
 
-    # Cache the args as a text string to save them in the output dir later
-    args_text = yaml.safe_dump(args.__dict__, default_flow_style=False)
-    return args, args_text
 
+
+
+
+
+#RUNNING TRAIN AS MAIN (FOR TESTING)
 
 if __name__ == '__main__':
     config_parser = argparse.ArgumentParser(description='Only used as a first parser for the config file path.')

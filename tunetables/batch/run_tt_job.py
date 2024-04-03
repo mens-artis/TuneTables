@@ -294,6 +294,8 @@ def main_f(args):
             task_str += temp_str
         if args.bptt > -1:
             task_str += '_bptt_' + str(args.bptt)
+        if args.early_stopping > -1:
+            task_str += '_earlystopping_' + str(args.early_stopping)
         if args.shuffle_every_epoch:
             task_str += '_shuffleep_'
         task_str += '_rdq_' + str(args.real_data_qty)
@@ -344,6 +346,8 @@ def main_f(args):
                 next_task['epochs'] = args.epochs
             if args.validation_period > 0:
                 next_task['validation_period'] = args.validation_period
+            if args.early_stopping > -1:
+                next_task['early_stopping'] = args.early_stopping
             if npp:
                 try:
                     next_task.pop('do_preprocess')
@@ -469,6 +473,13 @@ def main_f(args):
                             task_args = task_args + ["--mlp_tuning"]
                         if args.bptt > -1:
                             task_args = task_args + ["--bptt", str(args.bptt)]
+                        if args.early_stopping > -1:
+                            #Find "early stopping" in args
+                            search_str = "--early_stopping"
+                            if search_str in task_args:
+                                task_args[task_args.index(search_str) + 1] = str(args.early_stopping)
+                            else:
+                                task_args = task_args + ["--early_stopping", str(args.early_stopping)]
                         if args.epochs > 0:
                             task_args = task_args + ["--epochs", str(args.epochs)]
                         if args.validation_period > 0:
@@ -541,5 +552,6 @@ if __name__ == '__main__':
     parser.add_argument('--privacy_sweep', action='store_true', help='Train with differential privacy.')
     parser.add_argument('--adaptive_delta', action='store_true', help='Adapt delta for differential privacy.')
     parser.add_argument('--mlp_tuning', action='store_true', help='Run MLP tuning.')
+    parser.add_argument('--early_stopping', type=int, default=-1, help='Patience (for early stopping).')
     args = parser.parse_args()
     main_f(args)

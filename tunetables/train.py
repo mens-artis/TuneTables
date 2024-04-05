@@ -483,6 +483,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     elif do_kl_loss:
         assert num_classes < 11, "KL loss with TabPFN-zs only supports 10 classes or fewer"
         n_out = 10
+        mlp_criterion = nn.CrossEntropyLoss()
         criterion = kl_divergence
     elif isinstance(criterion, nn.GaussianNLLLoss):
         n_out = 2
@@ -529,7 +530,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         #next(iter(data_loader))
         n_samples, n_features = dl.dataset.X.shape
         #input size: tuple (unif_bptt, n_feats), hidden layers (list), output size, activation function
-        mlpmodel = VMLP((1, n_features), [emsize * 3], 10)
+        mlpmodel = VMLP((1, n_features), [2048 * 5], 10)
         mlpmodel.to(device)
     if encoder_mismatch:
         params_to_optimize.append("encoder")
@@ -759,7 +760,11 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                         losses = criterion(output.reshape(-1, n_out), targets.to(device).long().flatten())
                     elif do_mlp_tuning and not base_model_kl_loss:
                         losses = criterion(output.reshape(-1, n_out), targets.to(device).long().flatten())
+                        # losses += mlp_criterion(mlp_output, output)
+                        # losses += nn.functional.kl_div(mlp_output, output)
                         losses += mlp_criterion(output, mlp_output)
+                        losses += criterion(mlp_output, targets.to(device).long().flatten())
+                        # losses += mlp_criterion(real_data_preds, mlp_output)
                     elif do_kl_loss:
                         #TODO: investigate shape mismatches
                         real_data_preds = eval_model.predict_proba(data[0])
@@ -775,7 +780,11 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                         assert real_data_preds.shape == output.shape, f"Real data preds and tuned prompt output have different shapes: {real_data_preds.shape} and {output.shape}"
                         losses = criterion(real_data_preds, output)
                         if do_mlp_tuning:
-                            losses += criterion(output, mlp_output)                           
+                            # losses += criterion(mlp_output, output) 
+                            losses += criterion(output, mlp_output)
+                            # losses += nn.functional.kl_div(mlp_output, output)
+                            losses += mlp_criterion(mlp_output, targets.to(device).long().flatten())
+                            # losses += criterion(real_data_preds, mlp_output)                           
                     else:
                         losses = criterion(output, targets)
                     if boosting or do_kl_loss:

@@ -528,9 +528,13 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         params_to_optimize.append("prefix_embedding")
     if do_mlp_tuning:
         #next(iter(data_loader))
-        n_samples, n_features = dl.dataset.X.shape
+        # n_samples, n_features = dl.dataset.X.shape
+        n_features = extra_prior_kwargs_dict.get("orig_num_features", 100)
+        #TODO: modify this to handle feature-large datasets
+        if n_features > 100:
+            n_features = 100
         #input size: tuple (unif_bptt, n_feats), hidden layers (list), output size, activation function
-        mlpmodel = VMLP((1, n_features), [2048 * 5], 10)
+        mlpmodel = VMLP((1, n_features), [1024 * 7], 10)
         mlpmodel.to(device)
     if encoder_mismatch:
         params_to_optimize.append("encoder")
@@ -618,7 +622,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
 
                 #mlp model preds
                 if do_mlp_tuning:
-                    mlp_output = mlpmodel(data[0].to(device))
+                    #drop zero padding
+                    mlp_output = mlpmodel(data[0].to(device)[:, :extra_prior_kwargs_dict.get('orig_num_features', 100)])
                     mlp_output_list.append(mlp_output)
                     output = loop_translate(mlp_output, invert_perm_map)
                     output = output[:, 0:num_classes_local] / torch.exp(softmax_temperature)
@@ -740,9 +745,9 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     # if batch_size > 1:
                     #     output = output.flatten()
                     if do_mlp_tuning:
-                        mlp_output = mlpmodel(data[0].to(device))
+                        mlp_output = mlpmodel(data[0].to(device)[:, :extra_prior_kwargs_dict.get('orig_num_features', 100)])
 
-                    if not bptt_search:
+                    if not bptt_search and not do_mlp_tuning:
                         assert output.requires_grad, "Output does not require gradients"
                     forward_time = time.time() - before_forward
 
@@ -759,32 +764,53 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     elif isinstance(criterion, nn.CrossEntropyLoss):
                         losses = criterion(output.reshape(-1, n_out), targets.to(device).long().flatten())
                     elif do_mlp_tuning and not base_model_kl_loss:
-                        losses = criterion(output.reshape(-1, n_out), targets.to(device).long().flatten())
-                        # losses += mlp_criterion(mlp_output, output)
-                        # losses += nn.functional.kl_div(mlp_output, output)
-                        losses += mlp_criterion(output, mlp_output)
-                        losses += criterion(mlp_output, targets.to(device).long().flatten())
-                        # losses += mlp_criterion(real_data_preds, mlp_output)
+                        if do_prompt_tuning:
+                            #CE loss for prompt tuning
+                            losses = criterion(output.reshape(-1, n_out), targets.to(device).long().flatten())
+                            #MLP is KL loss
+                            losses += mlp_criterion(output, mlp_output)
+                            #CE loss for MLP
+                            losses += criterion(mlp_output, targets.to(device).long().flatten())
+                        else:
+                            #MLP is KL loss
+                            losses = mlp_criterion(real_data_preds, mlp_output)
+                            #CE loss for MLP
+                            losses += criterion(mlp_output, targets.to(device).long().flatten())
                     elif do_kl_loss:
-                        #TODO: investigate shape mismatches
-                        real_data_preds = eval_model.predict_proba(data[0])
-                        if real_data_preds.shape[1] < output.shape[1]:
-                            real_data_preds = np.concatenate([real_data_preds, np.zeros((real_data_preds.shape[0], output.shape[1] - real_data_preds.shape[1]))], axis=1)
-                        if real_data_preds.shape[0] != output.shape[0]:
-                            if verbose:
-                                print(f"Real data preds and tuned prompt output have different shapes: ", real_data_preds.shape, output.shape)
-                            smaller_shape = min(real_data_preds.shape[0], output.shape[0])
-                            real_data_preds = real_data_preds[:smaller_shape, :]
-                            output = output[:smaller_shape, :]
+                        losses = 0
+                        real_data_preds = eval_model.predict_proba(data[0])[:, :num_classes]
+                        output = output[:, :num_classes]
+                        if do_mlp_tuning:
+                            #MLP CE loss
+                            # mlp_loss = mlp_criterion(mlp_output, targets.to(device).long().flatten())
+                            # if mlp_loss > base_loss:
+                            #     #rescale MLP loss
+                            #     mlp_loss = mlp_loss * (base_loss / mlp_loss)
+                            # print("MLP CE loss: ", mlp_loss)
+                            # losses += mlp_loss
+                            mlp_output = mlp_output[:, :num_classes]
+                        # if real_data_preds.shape[1] < output.shape[1]:
+                        #     real_data_preds = np.concatenate([real_data_preds, np.zeros((real_data_preds.shape[0], output.shape[1] - real_data_preds.shape[1]))], axis=1)
+                        # if real_data_preds.shape[0] != output.shape[0]:
+                        #     if verbose:
+                        #         print(f"Real data preds and tuned prompt output have different shapes: ", real_data_preds.shape, output.shape)
+                        #     smaller_shape = min(real_data_preds.shape[0], output.shape[0])
+                        #     real_data_preds = real_data_preds[:smaller_shape, :]
+                        #     output = output[:smaller_shape, :]
                         real_data_preds = torch.tensor(real_data_preds).to(device)
                         assert real_data_preds.shape == output.shape, f"Real data preds and tuned prompt output have different shapes: {real_data_preds.shape} and {output.shape}"
-                        losses = criterion(real_data_preds, output)
+                        if do_prompt_tuning:
+                            #prompt tuning KL loss
+                            pt_kl_loss = criterion(output, real_data_preds)
+                            losses += pt_kl_loss
                         if do_mlp_tuning:
-                            # losses += criterion(mlp_output, output) 
-                            losses += criterion(output, mlp_output)
-                            # losses += nn.functional.kl_div(mlp_output, output)
-                            losses += mlp_criterion(mlp_output, targets.to(device).long().flatten())
-                            # losses += criterion(real_data_preds, mlp_output)                           
+                            # MLP KL loss
+                            if do_prompt_tuning:
+                                base_loss = criterion(output, mlp_output)
+                            else:
+                                print("Real data preds shape: ", real_data_preds.shape, "MLP output shape: ", mlp_output.shape)
+                                base_loss = criterion(real_data_preds, mlp_output)
+                            losses += base_loss
                     else:
                         losses = criterion(output, targets)
                     if boosting or do_kl_loss:

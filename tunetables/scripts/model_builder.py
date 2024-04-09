@@ -347,7 +347,7 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
 
     if config['prior_type'] == 'real':
         dataloader = dataset
-
+        config['orig_num_features'] = dataset.X.shape[1]
         config['num_classes'] = len(set(dataloader.y))
         config['num_steps'] = None
 
@@ -364,6 +364,7 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
     epkd = {
                         'prior_type': config['prior_type']
                         , 'num_features': n_features
+                        , 'orig_num_features': config.get('orig_num_features', -1)
                         , 'split': config['split']
                         , 'hyperparameters': prior_hyperparameters
                         , 'num_eval_fitting_samples': config.get('num_eval_fitting_samples', 1000)

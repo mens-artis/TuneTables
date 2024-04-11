@@ -7,6 +7,7 @@ import json
 from contextlib import nullcontext
 import copy
 import warnings
+from datetime import datetime
 
 import torch
 from torch import nn
@@ -851,12 +852,14 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     def save_prefix_weights(model, path, i, do_concat, prefix_weights_l):
         # Save prefix weights
         prefix_weights = model.state_dict()['prefix_embedding.weight'].cpu().numpy()
-        prefix_fn = f"prefix_weights_{i}.npy"
+        now = datetime.now()
+        time_str = now.strftime("%H_%M_%S")
+        prefix_fn = f"prefix_weights_{i}_{time_str}.npy"
         prefix_save_path = os.path.join(path, prefix_fn)
         # if not is_wrapper:
         np.save(prefix_save_path, prefix_weights)
         prefix_y_labels = model.prefix_y_embedding.cpu().numpy()
-        prefix_y_fn = f"prefix_y_labels_{i}.npy"
+        prefix_y_fn = f"prefix_y_labels_{i}_{time_str}.npy"
         prefix_y_save_path = os.path.join(path, prefix_y_fn)
 
         # if not is_wrapper:

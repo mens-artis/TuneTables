@@ -29,8 +29,13 @@ def train_function(config_sample, i=0, add_name='', is_wrapper = False, x_wrappe
         if len(epochs) % save_every_k == 0:
             print('Saving model..')
             config_sample['epoch_in_training'] = epoch
-            save_model(model, config_sample['base_path'], f'prior_diff_real_checkpoint{add_name}_n_{i}_epoch_{model.last_saved_epoch}.cpkt',
-                           config_sample)
+            try:
+                save_model(model, config_sample['base_path'], f'prior_diff_real_checkpoint{add_name}_n_{i}_epoch_{model.last_saved_epoch}.cpkt',
+                            config_sample)
+            except:
+                time.sleep(1)
+                save_model(model, config_sample['base_path'], f'prior_diff_real_checkpoint{add_name}_n_{i}_epoch_{model.last_saved_epoch}.cpkt',
+                            config_sample)
             model.last_saved_epoch = model.last_saved_epoch + 1 # TODO: Rename to checkpoint
 
     def no_callback(model, epoch, values_to_log):

@@ -442,7 +442,7 @@ def main_f(args):
     gcp_txt = "run_commands=(\n"
 
     if args.privacy_sweep:
-        edg_vals = [0.01, 0.1, 0.5, 1.0, 5.0]
+        edg_vals = [0.01, 0.05, 0.1, 0.5, 1.0]
     else:
         edg_vals = [0.0]
 

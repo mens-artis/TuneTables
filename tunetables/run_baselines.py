@@ -205,8 +205,8 @@ def run_eval(dataset_name, base_path, max_time, epsilon, local_args):
             if args.privacy_sweep:
                 model_string += f'_eps_{epsilon}'
             wandb.login(key=get_wandb_api_key())
-            wandb.init(config=config, name=model_string, group='baselines',
-                project='tt-dp-strongbaselines', entity='nyu-dice-lab')
+            wandb.init(config=config, name=model_string, group='baselines-0415',
+                project='baselines-0415', entity='nyu-dice-lab')
             num_classes = len(np.unique(y_train))
             try:
                 results = run_and_get_metrics()
@@ -235,7 +235,7 @@ if __name__ == '__main__':
         dataset = dataset.strip()
         epsilon = None
         if args.privacy_sweep:
-            for tgt_eps in ["0.01", "0.1", "0.5", "1.0", "5.0"]:
+            for tgt_eps in ["0.01", "0.05", "0.1", "0.5", "1.0"]:
                 run_eval(dataset, args.dataset_path, args.max_time, tgt_eps, args)
         else:
             run_eval(dataset, args.dataset_path, args.max_time, epsilon, args)

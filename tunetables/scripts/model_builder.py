@@ -353,8 +353,10 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
 
     else:
         dataloader = model_proto.DataLoader
-
-    if config['max_num_classes'] == 2:
+    if dataset.target_type == "regression":
+        from torch import nn
+        loss = nn.MSELoss(reduction='none')
+    elif config['max_num_classes'] == 2:
         loss = Losses.bce
     elif config['max_num_classes'] > 2:
         loss = Losses.ce(config['max_num_classes'])

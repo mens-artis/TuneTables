@@ -22,6 +22,9 @@ from sklearn.metrics import (
     f1_score,
     log_loss,
     roc_auc_score,
+    mean_squared_error,
+    mean_absolute_error,
+    r2_score,
 )
 
 import tunetables.utils as utils
@@ -122,6 +125,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     device = gpu_device if torch.cuda.is_available() else 'cpu:0'
     using_dist, rank, device = init_dist(device)
     start_time = time.time()
+    #get problem type
+    target_type = dataset.target_type
 
     #verify that the save path exists
     if not os.path.exists(extra_prior_kwargs_dict.get('save_path')):
@@ -216,7 +221,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             y_val = y_val[extra_prior_kwargs_dict['shuffle_index']['val']]
             X_test = X_test[extra_prior_kwargs_dict['shuffle_index']['test']]
             y_test = y_test[extra_prior_kwargs_dict['shuffle_index']['test']]
-
             n_features = X_train.shape[1]
             n_samples = X_train.shape[0]
             #config['num_classes'] = len(set(y_train))
@@ -235,43 +239,49 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
 
         X, y = X_train, y_train
 
-        #Permutation of label order
-        if do_permute and (not is_wrapper):
-            label_perm = np.random.permutation(num_classes)
-        else:
-            label_perm = np.arange(num_classes)
 
-        invert_perm_map = {
-            label_perm[i]: i for i in range(num_classes)
-        }
-        rev_invert_perm_map = {
-            i: label_perm[i] for i in range(num_classes)
-        }
+        if target_type == 'classification':
+            #Permutation of label order
+            if do_permute and (not is_wrapper):
+                label_perm = np.random.permutation(num_classes)
+            else:
+                label_perm = np.arange(num_classes)
 
-        #Permutation of feature order
-        if do_permute and (not is_wrapper):
-            feat_idx = np.random.permutation(X.shape[1])
-        else:
-            feat_idx = np.arange(X.shape[1])
+            invert_perm_map = {
+                label_perm[i]: i for i in range(num_classes)
+            }
+            rev_invert_perm_map = {
+                i: label_perm[i] for i in range(num_classes)
+            }
+
+            #Permutation of feature order
+            if do_permute and (not is_wrapper):
+                feat_idx = np.random.permutation(X.shape[1])
+            else:
+                feat_idx = np.arange(X.shape[1])
         
-        #Permutation of train data order
-        idx = np.random.permutation(X.shape[0])
-        X = X[idx, ...]
-        y = y[idx, ...]
+            #Permutation of train data order
+            idx = np.random.permutation(X.shape[0])
+            X = X[idx, ...]
+            y = y[idx, ...]
 
-        y = loop_translate(y, rev_invert_perm_map)
+            y = loop_translate(y, rev_invert_perm_map)
 
-        X = X[:, feat_idx, ...]
-        X_val = X_val[:, feat_idx, ...]
-        X_test = X_test[:, feat_idx, ...]
+            X = X[:, feat_idx, ...]
+            X_val = X_val[:, feat_idx, ...]
+            X_test = X_test[:, feat_idx, ...]
 
-        # label balancing
-        num_classes = len(np.unique(np.unique(y)))
-        if do_prompt_tuning and extra_prior_kwargs_dict.get('tuned_prompt_label_balance', 'equal') == 'proportional':
-            int_y = y.astype(int)
-            label_weights = np.bincount(int_y) / len(int_y)
-            label_weights = torch.from_numpy(label_weights).float().to(device)
+            # label balancing
+            num_classes = len(np.unique(np.unique(y)))
+            if do_prompt_tuning and extra_prior_kwargs_dict.get('tuned_prompt_label_balance', 'equal') == 'proportional':
+                int_y = y.astype(int)
+                label_weights = np.bincount(int_y) / len(int_y)
+                label_weights = torch.from_numpy(label_weights).float().to(device)
+            else:
+                label_weights = None
         else:
+            num_classes = 1
+            invert_perm_map = None
             label_weights = None
 
         if extra_prior_kwargs_dict.get("do_preprocess", False):
@@ -350,6 +360,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 extra_prior_kwargs_dict['uniform_bptt'] = True
             
         data_for_fitting = None
+
         X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds = make_datasets(extra_prior_kwargs_dict, do_permute=not_zs, bptt=bptt, steps_per_epoch=steps_per_epoch, is_wrapper=is_wrapper)
         old_bptt = bptt
         dl, val_dl, test_dl, bptt, data_for_fitting  = make_dataloaders(bptt=bptt, not_zs=not_zs)
@@ -481,14 +492,13 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     if load_weights_from_this_state_dict is not None:
         encoder_mismatch = False
         decoder_mismatch = False
-        if do_kl_loss:
+        if do_kl_loss or target_type == 'regression':
             load_weights_from_this_state_dict.pop('criterion.weight')
-        if num_classes > 10:
+        if num_classes > 10 or target_type == 'regression':
             #initialize a new decoder head
             decoder_mismatch = True
             load_weights_from_this_state_dict['decoder.2.weight'] = model.state_dict()['decoder.2.weight']
             load_weights_from_this_state_dict['decoder.2.bias'] = model.state_dict()['decoder.2.bias']
-            load_weights_from_this_state_dict['criterion.weight'] = model.state_dict()['criterion.weight']
         if load_weights_from_this_state_dict.get('prefix_embedding.weight', None) is None and model.state_dict().get('prefix_embedding.weight', None) is not None:
             load_weights_from_this_state_dict['prefix_embedding.weight'] = model.state_dict()['prefix_embedding.weight']
         if load_weights_from_this_state_dict.get('encoder.weight', None) is not None:
@@ -570,48 +580,58 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 output = r_model(tuple(e.to(device) if torch.is_tensor(e) else e for e in batch_data) if isinstance(batch_data, tuple) else batch_data.to(device)
                     , single_eval_pos=single_eval_pos)
                 #invert permutation of labels
-                new_output = loop_translate(output, invert_perm_map)
-                output = new_output
-                output = output[:, 0:num_classes_local] / torch.exp(softmax_temperature)
-                output = torch.nn.functional.softmax(output, dim=-1)
-                output_list.append(output)
-                _, predicted = torch.max(output.cpu().data, 1)
-                prediction_list.append(predicted)
-                target_list.append(targets)
+                if target_type == "classification":
+                    new_output = loop_translate(output, invert_perm_map)
+                    output = new_output
+                    output = output[:, 0:num_classes_local] / torch.exp(softmax_temperature)
+                    output = torch.nn.functional.softmax(output, dim=-1)
+                    output_list.append(output)
+                    _, predicted = torch.max(output.cpu().data, 1)
+                    prediction_list.append(predicted)
+                    target_list.append(targets)
+                elif target_type == "regression":
+                    output_list.append(output)
+                    prediction_list.append(output)
+                    target_list.append(targets)
             outputs = torch.cat(output_list, dim=0).cpu().numpy()
             predictions = torch.cat(prediction_list, dim=0).cpu().numpy()
             targets = torch.cat(target_list, dim=0).cpu().numpy()
-            # print("In real data eval, Targets: ", targets[:20])
 
         results = dict()
         warnings.filterwarnings("ignore")
         results['Eval_Time'] = np.round(time.time() - start_time, 3).item()
-        results['Accuracy'] = np.round(accuracy_score(targets, predictions), 3).item()
-        try:
-            results['Log_Loss'] = np.round(log_loss(targets, outputs, labels=np.arange(num_classes_local)), 3).item()
-        except Exception as e:
-            if verbose:
-                print("Error calculating log loss: ", e)
-            results['Log_Loss'] = 0.0
-        results['F1_Weighted'] = np.round(f1_score(targets, predictions, average='weighted'), 3).item()
-        results['F1_Macro'] = np.round(f1_score(targets, predictions, average='macro'), 3).item()
-        try:
-            if num_classes_local == 2:
-                results['ROC_AUC'] = np.round(roc_auc_score(targets, outputs[:, 1], labels=np.arange(num_classes_local)), 3).item()
-            else:
-                results['ROC_AUC'] = np.round(roc_auc_score(targets, outputs, labels=np.arange(num_classes_local), multi_class='ovr'), 3).item()
-        except Exception as e:
-            if verbose:
-                print("Error calculating ROC AUC: ", e)
-            results['ROC_AUC'] = 0.0
-        try:
-            results['ECE'] = np.round(um.ece(targets, outputs, num_bins=30), 3).item()
-            results['TACE'] = np.round(um.tace(targets, outputs, num_bins=30), 3).item()
-        except Exception as e:
-            if verbose:
-                print("Error calculating ECE/TACE: ", e)
-            results['ECE'] = 0.0
-            results['TACE'] = 0.0
+        if target_type == "regression":
+            results['MSE'] = np.round(mean_squared_error(targets, predictions), 3).item()
+            results['MAE'] = np.round(mean_absolute_error(targets, predictions), 3).item()
+            results['R2'] = np.round(r2_score(targets, predictions), 3).item()
+            print("MSE: ", results['MSE'], "MAE: ", results['MAE'], "R2: ", results['R2'])
+        elif target_type == "classification":
+            results['Accuracy'] = np.round(accuracy_score(targets, predictions), 3).item()
+            try:
+                results['Log_Loss'] = np.round(log_loss(targets, outputs, labels=np.arange(num_classes_local)), 3).item()
+            except Exception as e:
+                if verbose:
+                    print("Error calculating log loss: ", e)
+                results['Log_Loss'] = 0.0
+            results['F1_Weighted'] = np.round(f1_score(targets, predictions, average='weighted'), 3).item()
+            results['F1_Macro'] = np.round(f1_score(targets, predictions, average='macro'), 3).item()
+            try:
+                if num_classes_local == 2:
+                    results['ROC_AUC'] = np.round(roc_auc_score(targets, outputs[:, 1], labels=np.arange(num_classes_local)), 3).item()
+                else:
+                    results['ROC_AUC'] = np.round(roc_auc_score(targets, outputs, labels=np.arange(num_classes_local), multi_class='ovr'), 3).item()
+            except Exception as e:
+                if verbose:
+                    print("Error calculating ROC AUC: ", e)
+                results['ROC_AUC'] = 0.0
+            try:
+                results['ECE'] = np.round(um.ece(targets, outputs, num_bins=30), 3).item()
+                results['TACE'] = np.round(um.tace(targets, outputs, num_bins=30), 3).item()
+            except Exception as e:
+                if verbose:
+                    print("Error calculating ECE/TACE: ", e)
+                results['ECE'] = 0.0
+                results['TACE'] = 0.0
 
         warnings.filterwarnings("default")
 
@@ -1043,7 +1063,10 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 vrun_dl = get_subset_dl(LONG_VAL_EP=LONG_VAL_EP)
                 val_results, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=real_data_qty, train_data=data_for_fitting, val_dl=vrun_dl)
                 res_dict = dict(res_dict, **{"Val_" + k : v for k, v in val_results.items()})
-                val_score = res_dict["Val_Accuracy"]
+                if target_type == "classification":
+                    val_score = res_dict["Val_Accuracy"]
+                elif target_type == "regression":
+                    val_score = res_dict["Val_R2"]
                 return_outputs = [val_outputs]
                 return_targets = [val_targets]
                 if do_prompt_tuning:
@@ -1153,7 +1176,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             # stepping with wallclock time based scheduler
             t_sched.step()
 
-        if do_prompt_tuning and not do_kl_loss and isinstance(best_val_embed, torch.Tensor):
+        if do_prompt_tuning and not do_kl_loss and target_type == "classification" and isinstance(best_val_embed, torch.Tensor):
             t_model.prefix_embedding.weight = nn.Parameter(best_val_embed.to(device))
             #set requires grad to true
             t_model.prefix_embedding.weight.requires_grad = True
@@ -1265,12 +1288,13 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             labels_np_nc_test = test_targets[3]
         if is_ensemble:
             master_epoch_count.append(1)
-            best_ens_acc = res_dict_ensemble[i][topk_key]
-            ensembling_acc[i] = update_ensemble_acc(res_dict_ensemble[i]['Val_Accuracy'], 
-                                                    res_dict_ensemble[i]['Val_nc_Accuracy'], 
-                                                    res_dict_ensemble[i]['Test_Accuracy'], 
-                                                    res_dict_ensemble[i]['Test_nc_Accuracy'],
-                                                    len(np.unique(labels_np)))
+            if target_type == "classification":
+                best_ens_acc = res_dict_ensemble[i][topk_key]
+                ensembling_acc[i] = update_ensemble_acc(res_dict_ensemble[i]['Val_Accuracy'], 
+                                                        res_dict_ensemble[i]['Val_nc_Accuracy'], 
+                                                        res_dict_ensemble[i]['Test_Accuracy'], 
+                                                        res_dict_ensemble[i]['Test_nc_Accuracy'],
+                                                        len(np.unique(labels_np)))
             if not do_concat:
                 with open(os.path.join(extra_prior_kwargs_dict.get('save_path'), 'ensembling_acc.json'), 'w') as f:
                     json.dump(ensembling_acc, f, indent=4)

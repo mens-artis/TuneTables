@@ -46,7 +46,12 @@ def train_function(config_sample, i=0, add_name='', is_wrapper = False, x_wrappe
                       , config_sample["device"]
                       , should_train=True
                       , state_dict=config_sample["state_dict"]
-                      , epoch_callback = my_callback, is_wrapper = is_wrapper, x_wrapper = x_wrapper, y_wrapper = y_wrapper, cat_idx = cat_idx)
+                      , epoch_callback = my_callback
+                      , is_wrapper = is_wrapper
+                      , x_wrapper = x_wrapper
+                      , y_wrapper = y_wrapper
+                      , cat_idx = cat_idx
+                      )
     
     if is_wrapper:
         return model, data_for_fitting, test_loader

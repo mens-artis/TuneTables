@@ -42,6 +42,7 @@ class TabDS(Dataset):
         #check if NaNs are present in y
         if np.isnan(y).any():
             print("WARNING: NaNs present in y, dropping them")
+            breakpoint()
             nan_mask = ~np.isnan(y)
             X = X[nan_mask, ...]
             y = y[nan_mask, ...]
@@ -63,7 +64,7 @@ class TabDS(Dataset):
 
     def __getitem__(self, idx):
         #(X,y) data, y target, single_eval_pos
-        ret_item = tuple([self.X[idx], self.y_float[idx]]), self.y[idx], torch.tensor([])
+        ret_item = tuple([self.X[idx], self.y_float[idx]]), self.y_float[idx], torch.tensor([])
         return ret_item
 
 class TabularDataset(object):
@@ -142,7 +143,6 @@ class TabularDataset(object):
         self.num_instances = num_instances
         self.split_indeces = split_indeces
         self.split_source = split_source
-
         pass
 
     def target_encode(self):
@@ -766,6 +766,13 @@ def process_data(
                 split="test",
                 seed=args.rand_seed,
             )
+
+    #Normalize y values for regression
+    if dataset.target_type == "regression":
+        y_train = (y_train - np.mean(y_train)) / np.std(y_train)
+        y_val = (y_val - np.mean(y_val)) / np.std(y_val)
+        y_test = (y_test - np.mean(y_test)) / np.std(y_test)
+
     return {
         "data_train": (X_train, y_train),
         "data_val": (X_val, y_val),
@@ -815,9 +822,6 @@ def loop_translate(a, my_dict):
         for i,elem in enumerate(a):
             new_a[i] = my_dict.get(elem)
     elif a.ndim == 2:
-        # print("In loop translate: ")
-        # print("a shape: ", a.shape)
-        # print("a: ", a[:5, ...])
         new_a = []
         for val in list(my_dict.keys()):
             new_a.append(a[:, val])
@@ -826,8 +830,6 @@ def loop_translate(a, my_dict):
         else:
             #torch tensor
             new_a = torch.stack(new_a, axis=1)
-        # print("new_a shape: ", new_a.shape)
-        # print("new_a: ", new_a[:5, ...])
     return new_a
 
 def preprocess_input(eval_xs, preprocess_transform, summerize_after_prep, args, is_train=False):

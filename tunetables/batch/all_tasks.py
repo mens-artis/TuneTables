@@ -88,9 +88,39 @@ pt10_short_unif_dict = copy.deepcopy(pt10_short_dict)
 pt10_short_unif_dict['uniform_bptt'] = ''
 pt10_shorter_unif_dict = copy.deepcopy(pt10_shorter_dict)
 pt10_shorter_unif_dict['uniform_bptt'] = ''
+pt10_long_dict = copy.deepcopy(pt10_dict)
+pt10_long_dict['epochs'] = 201
+pt10_long_dict['save_every_k_epochs'] = 202
+pt10_long_dict['validation_period'] = 3
+pt10_long_dict['early_stopping'] = 5
+pt10_long_dict['aggregate_k_gradients'] = 4
+pt10_long_dict['lr'] = 0.00005
+pt10_long_pca_dict = copy.deepcopy(pt10_long_dict)
+pt10_long_pca_dict['subset_features_method'] = 'pca'
+pt10_long_mutinf_dict = copy.deepcopy(pt10_long_dict)
+pt10_long_mutinf_dict['subset_features_method'] = 'mutual_information'
+pt10_long_pca_sumafter_dict = copy.deepcopy(pt10_long_pca_dict)
+pt10_long_pca_sumafter_dict['summerize_after_prep'] = ''
+pt10_long_mutinf_sumafter_dict = copy.deepcopy(pt10_long_mutinf_dict)
+pt10_long_mutinf_sumafter_dict['summerize_after_prep'] = ''
 pt10_unif_dict = copy.deepcopy(pt10_dict)
 pt10_unif_dict['uniform_bptt'] = ''
 pt10_unif_dict['topk_key'] = 'Val_nc_Accuracy'
+pt10_unif_long_dict = copy.deepcopy(pt10_unif_dict)
+pt10_unif_long_dict['epochs'] = 201
+pt10_unif_long_dict['save_every_k_epochs'] = 202
+pt10_unif_long_dict['validation_period'] = 3
+pt10_unif_long_dict['early_stopping'] = 5
+pt10_unif_long_dict['aggregate_k_gradients'] = 4
+pt10_unif_long_dict['lr'] = 0.00005
+pt10_unif_long_pca_dict = copy.deepcopy(pt10_unif_long_dict)
+pt10_unif_long_pca_dict['subset_features_method'] = 'pca'
+pt10_unif_long_mutinf_dict = copy.deepcopy(pt10_unif_long_dict)
+pt10_unif_long_mutinf_dict['subset_features_method'] = 'mutual_information'
+pt10_unif_long_pca_sumafter_dict = copy.deepcopy(pt10_unif_long_pca_dict)
+pt10_unif_long_pca_sumafter_dict['summerize_after_prep'] = ''
+pt10_unif_long_mutinf_sumafter_dict = copy.deepcopy(pt10_unif_long_mutinf_dict)
+pt10_unif_long_mutinf_sumafter_dict['summerize_after_prep'] = ''
 pt10_unif_kl_dict = copy.deepcopy(pt10_unif_dict)
 pt10_unif_kl_dict['kl_loss'] = ''
 pt10_unif_kl_dict['early_stopping'] = 2
@@ -198,6 +228,21 @@ pt1000_long_dict = copy.deepcopy(pt1000_dict)
 pt1000_long_dict['epochs'] = 101
 pt1000_long_dict['save_every_k_epochs'] = 102
 pt1000_long_dict['validation_period'] = 5
+pt1000_xlong_dict = copy.deepcopy(pt1000_dict)
+pt1000_xlong_dict['epochs'] = 201
+pt1000_xlong_dict['save_every_k_epochs'] = 202
+pt1000_xlong_dict['validation_period'] = 3
+pt1000_xlong_dict['early_stopping'] = 5
+pt1000_xlong_dict['aggregate_k_gradients'] = 4
+pt1000_xlong_dict['lr'] = 0.00005
+pt1000_xlong_pca_dict = copy.deepcopy(pt1000_xlong_dict)
+pt1000_xlong_pca_dict['subset_features_method'] = 'pca'
+pt1000_xlong_mutinf_dict = copy.deepcopy(pt1000_xlong_dict)
+pt1000_xlong_mutinf_dict['subset_features_method'] = 'mutual_information'
+pt1000_xlong_pca_sumafter_dict = copy.deepcopy(pt1000_xlong_pca_dict)
+pt1000_xlong_pca_sumafter_dict['summerize_after_prep'] = ''
+pt1000_xlong_mutinf_sumafter_dict = copy.deepcopy(pt1000_xlong_mutinf_dict)
+pt1000_xlong_mutinf_sumafter_dict['summerize_after_prep'] = ''
 pt1000_short_dict = copy.deepcopy(pt1000_dict)
 pt1000_short_dict['epochs'] = 7
 pt1000_short_dict['save_every_k_epochs'] = 12
@@ -217,6 +262,21 @@ pt1000_shorter_unif_dict['uniform_bptt'] = ''
 pt1000_unif_dict = copy.deepcopy(pt1000_dict)
 pt1000_unif_dict['uniform_bptt'] = ''
 pt1000_unif_dict['topk_key'] = 'Val_nc_Accuracy'
+pt1000_unif_xlong_dict = copy.deepcopy(pt1000_unif_dict)
+pt1000_unif_xlong_dict['epochs'] = 201
+pt1000_unif_xlong_dict['save_every_k_epochs'] = 202
+pt1000_unif_xlong_dict['validation_period'] = 3
+pt1000_unif_xlong_dict['early_stopping'] = 5
+pt1000_unif_xlong_dict['aggregate_k_gradients'] = 4
+pt1000_unif_xlong_dict['lr'] = 0.00005
+pt1000_unif_xlong_pca_dict = copy.deepcopy(pt1000_unif_xlong_dict)
+pt1000_unif_xlong_pca_dict['subset_features_method'] = 'pca'
+pt1000_unif_xlong_mutinf_dict = copy.deepcopy(pt1000_unif_xlong_dict)
+pt1000_unif_xlong_mutinf_dict['subset_features_method'] = 'mutual_information'
+pt1000_unif_xlong_pca_sumafter_dict = copy.deepcopy(pt1000_unif_xlong_pca_dict)
+pt1000_unif_xlong_pca_sumafter_dict['summerize_after_prep'] = ''
+pt1000_unif_xlong_mutinf_sumafter_dict = copy.deepcopy(pt1000_unif_xlong_mutinf_dict)
+pt1000_unif_xlong_mutinf_sumafter_dict['summerize_after_prep'] = ''
 pt1000_unif_search_dict = copy.deepcopy(pt1000_unif_dict)
 pt1000_unif_search_dict['bptt_search'] = ''
 pt1000_unif_kl_dict = copy.deepcopy(pt1000_unif_dict)
@@ -444,6 +504,11 @@ all_tasks = {
     'pt10-powerall' : pt10_powerall_dict,
     'pt10-sumafter-pca' : pt10_sumafter_pca_dict,
     'pt10-sumafter-mutual_information' : pt10_sumafter_mutinf_dict,
+    'pt10-long' : pt10_long_dict,
+    'pt10-long-pca' : pt10_long_pca_dict,
+    'pt10-long-mutual_information' : pt10_long_mutinf_dict,
+    'pt10-long-sumafter-pca' : pt10_long_pca_sumafter_dict,
+    'pt10-long-sumafter-mutual_information' : pt10_long_mutinf_sumafter_dict,
     'pt10-short' : pt10_short_dict,
     'pt10-short-lowlr' : pt10_short_lowlr_dict,
     'pt10-short-lowlr-prop' : pt10_short_lowlr_prop_dict,
@@ -453,6 +518,11 @@ all_tasks = {
     'pt10-short-lowlr-prop-sumafter-mutual_information' : pt10_short_lowlr_prop_sumafter_mutinf_dict,
     'pt10-shorter' : pt10_shorter_dict,
     'pt10-uniform' : pt10_unif_dict,
+    'pt10-uniform-long' : pt10_unif_long_dict,
+    'pt10-uniform-long-pca' : pt10_unif_long_pca_dict,
+    'pt10-uniform-long-mutual_information' : pt10_unif_long_mutinf_dict,
+    'pt10-uniform-long-sumafter-pca' : pt10_unif_long_pca_sumafter_dict,
+    'pt10-uniform-long-sumafter-mutual_information' : pt10_unif_long_mutinf_sumafter_dict,
     'pt10-uniform-kl' : pt10_unif_kl_dict,
     'pt10-uniform-kl-nopp' : pt10_unif_kl_nopp_dict,
     'pt10-uniform-kl-nopp-pca' : pt10_unif_kl_nopp_pca_dict,
@@ -494,11 +564,21 @@ all_tasks = {
     'pt100-3ens-randinit-avg-top2-reseed-unif' : ens3_pt100_randinit_avg_top2_reseed_unif_dict,
     'pt500': pt500_dict,
     'pt1000': pt1000_dict,
+    'pt1000-xlong' : pt1000_xlong_dict,
+    'pt1000-xlong-pca' : pt1000_xlong_pca_dict,
+    'pt1000-xlong-mutual_information' : pt1000_xlong_mutinf_dict,
+    'pt1000-xlong-sumafter-pca' : pt1000_xlong_pca_sumafter_dict,
+    'pt1000-xlong-sumafter-mutual_information' : pt1000_xlong_mutinf_sumafter_dict,
     'pt1000-prop' : pt1000_prop_dict,
     'pt1000-pca' : pt1000_pca_dict,
     'pt1000-mut' : pt1000_mut_dict,
     'pt1000-rand' : pt1000_rand_dict,
     'pt1000-uniform' : pt1000_unif_dict,
+    'pt1000-uniform-xlong' : pt1000_unif_xlong_dict,
+    'pt1000-uniform-xlong-pca' : pt1000_unif_xlong_pca_dict,
+    'pt1000-uniform-xlong-mutual_information' : pt1000_unif_xlong_mutinf_dict,
+    'pt1000-uniform-xlong-sumafter-pca' : pt1000_unif_xlong_pca_sumafter_dict,
+    'pt1000-uniform-xlong-sumafter-mutual_information' : pt1000_unif_xlong_mutinf_sumafter_dict,
     'pt1000-uniform-search' : pt1000_unif_search_dict,
     'pt1000-uniform-kl' : pt1000_unif_kl_dict,
     'pt1000-uniform-sumafter-pca' : pt1000_sumafter_pca_unif_dict,

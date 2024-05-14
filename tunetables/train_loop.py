@@ -207,7 +207,10 @@ def reload_config(config_type='causal', task_type='multiclass', longer=0, args=N
     config['train_mixed_precision'] = True
 
     if args.resume is not None:
-        model_state, optimizer_state_load, config_sample_load = torch.load(args.resume, map_location='cpu')
+        try:
+            model_state, optimizer_state_load, config_sample_load = torch.load(args.resume, map_location='cpu')
+        except:
+            model_state, _, optimizer_state_load, config_sample_load = torch.load(args.resume, map_location='cpu')
         module_prefix = 'module.'
         config["state_dict"] = {k.replace(module_prefix, ''): v for k, v in model_state.items()}
     else:

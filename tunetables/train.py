@@ -127,6 +127,10 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     start_time = time.time()
     #get problem type
     target_type = dataset.target_type
+    if target_type == 'regression':
+        do_regression = True
+    else:
+        do_regression = False
 
     #verify that the save path exists
     if not os.path.exists(extra_prior_kwargs_dict.get('save_path')):
@@ -486,19 +490,22 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                              y_encoder=y_encoder_generator(1, emsize), input_normalization=input_normalization,
                              pos_encoder=(pos_encoder_generator or positional_encodings.NoPositionalEncoding)(emsize, bptt*2),
                              decoder=decoder, init_method=initializer, efficient_eval_masking=efficient_eval_masking, prefix_size=prefix_size,
-                             n_classes=num_classes, prefix_label_probs=label_weights, num_features=extra_prior_kwargs_dict.get("num_features", 100), **model_extra_args
+                             n_classes=num_classes, prefix_label_probs=label_weights, num_features=extra_prior_kwargs_dict.get("num_features", 100), 
+                             do_regression=do_regression, **model_extra_args
                              )
     model.criterion = criterion    
     if load_weights_from_this_state_dict is not None:
         encoder_mismatch = False
         decoder_mismatch = False
-        if do_kl_loss or target_type == 'regression':
+        if load_weights_from_this_state_dict.get('criterion.weight', False) and (do_kl_loss or target_type == 'regression'):
             load_weights_from_this_state_dict.pop('criterion.weight')
-        if num_classes > 10 or target_type == 'regression':
+        if num_classes > 10:
             #initialize a new decoder head
             decoder_mismatch = True
             load_weights_from_this_state_dict['decoder.2.weight'] = model.state_dict()['decoder.2.weight']
             load_weights_from_this_state_dict['decoder.2.bias'] = model.state_dict()['decoder.2.bias']
+        if do_prompt_tuning and target_type == 'regression':
+            load_weights_from_this_state_dict['prefix_y_embedding.weight'] = model.state_dict()['prefix_y_embedding.weight']
         if load_weights_from_this_state_dict.get('prefix_embedding.weight', None) is None and model.state_dict().get('prefix_embedding.weight', None) is not None:
             load_weights_from_this_state_dict['prefix_embedding.weight'] = model.state_dict()['prefix_embedding.weight']
         if load_weights_from_this_state_dict.get('encoder.weight', None) is not None:
@@ -516,6 +523,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     params_to_optimize = []
     if do_prompt_tuning:
         params_to_optimize.append("prefix_embedding")
+    if target_type == 'regression':
+        params_to_optimize.append("prefix_y_embedding")
     if encoder_mismatch:
         params_to_optimize.append("encoder")
     if decoder_mismatch:
@@ -1146,6 +1155,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     f' | forward time {forward_time:5.2f}' 
                     f' | nan share {nan_share:5.2f} | ignore share (for classification tasks) {ignore_share:5.4f}'
                     + (f' | val score {val_score}' if val_score is not None else '')
+                    + (f' | R2 score nc {res_dict.get("Val_nc_R2", 0)}' if val_score_nc is not None else '')
                     + (f' | val score nc {res_dict.get("Val_nc_Accuracy", 0)}' if val_score_nc is not None else '')
                 )
                 print('-' * 89)
@@ -1301,7 +1311,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 if extra_prior_kwargs_dict.get('wandb_log', False):
                     import wandb
                     wandb.log(ensembling_acc[i], step=len(master_epoch_count), commit=True)
-        if do_prompt_tuning:
+        if do_prompt_tuning and not do_regression:
+            #TODO: make this work with regression
             prefix_weights_l = save_prefix_weights(model, extra_prior_kwargs_dict.get('save_path'), i, do_concat, prefix_weights_l)
     except KeyboardInterrupt:
         pass

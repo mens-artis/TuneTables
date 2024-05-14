@@ -13,7 +13,8 @@ class TransformerModel(nn.Module):
     def __init__(self, encoder, n_out, ninp, nhead, nhid, nlayers, dropout=0.0, style_encoder=None, y_encoder=None,
                  pos_encoder=None, decoder=None, input_normalization=False, init_method=None, pre_norm=False,
                  activation='gelu', recompute_attn=False, num_global_att_tokens=0, full_attention=False,
-                 all_layers_same_init=False, efficient_eval_masking=True, prefix_size=0, n_classes=2, prefix_label_probs=None, num_features=100):
+                 all_layers_same_init=False, efficient_eval_masking=True, prefix_size=0, n_classes=2, prefix_label_probs=None, 
+                 num_features=100, do_regression=False):
         super().__init__()
         self.model_type = 'Transformer'
         encoder_layer_creator = lambda: TransformerEncoderLayer(ninp, nhead, nhid, dropout, activation=activation,
@@ -32,14 +33,17 @@ class TransformerModel(nn.Module):
             assert not full_attention
         self.global_att_embeddings = nn.Embedding(num_global_att_tokens, ninp) if num_global_att_tokens else None
         self.prefix_size = prefix_size
+        self.do_regression = do_regression
         if self.prefix_size > 0:
             self.prefix_embedding = nn.Embedding(prefix_size, ninp)
             #name the parameters in prefix_embedding to avoid confusion with the encoder
-            if prefix_label_probs is not None:
+            if do_regression:
+                self.prefix_y_embedding = nn.Embedding(prefix_size, 1)
+            elif prefix_label_probs is not None:
                 self.prefix_y_embedding = torch.multinomial(prefix_label_probs, prefix_size, replacement=True)
             else:
                 self.prefix_y_embedding = torch.randint(0, n_classes, (prefix_size, ))
-            print('prefix_y_embedding has {} unique classes'.format(len(torch.unique(self.prefix_y_embedding))))
+            # print('prefix_y_embedding has {} unique classes'.format(len(torch.unique(self.prefix_y_embedding))))
         self.full_attention = full_attention
         self.efficient_eval_masking = efficient_eval_masking
 
@@ -97,7 +101,7 @@ class TransformerModel(nn.Module):
     def freeze_parameters_except_prefix(self):
         for name, param in self.named_parameters():
             # Freeze all parameters except those in prefix_embedding
-            if 'prefix_embedding' not in name:
+            if 'prefix_' not in name:
                 param.requires_grad = False
             else:
                 param.requires_grad = True
@@ -131,6 +135,9 @@ class TransformerModel(nn.Module):
     def init_prefix_weights(self):
         initrange = 1.
         self.prefix_embedding.weight.data.uniform_(-initrange, initrange)
+        if self.do_embedding:
+            self.prefix_y_embedding.weight.data.uniform_(-initrange, initrange)
+
 
     def forward(self, src, src_mask=None, single_eval_pos=None):
         assert isinstance(src, tuple), 'inputs (src) have to be given as (x,y) or (style,x,y) tuple'
@@ -154,12 +161,20 @@ class TransformerModel(nn.Module):
             else:
                 x_src = torch.cat([x_src.unsqueeze(1), self.prefix_embedding.weight], 0)
             #concatenate prefix embedding to y_src
-            if len(y_src.shape) > len(self.prefix_y_embedding.shape):
-                y_src = torch.cat([self.prefix_y_embedding.to(self.prefix_embedding.weight.device).unsqueeze(1), y_src], 0)
-            elif len(y_src.shape) == len(self.prefix_y_embedding.shape):
-                y_src = torch.cat([self.prefix_y_embedding.to(self.prefix_embedding.weight.device), y_src], 0)
+            if self.do_regression:
+                if len(y_src.shape) > len(self.prefix_y_embedding.weight.shape):
+                    y_src = torch.cat([self.prefix_y_embedding.weight.to(self.prefix_embedding.weight.device).unsqueeze(1), y_src], 0)
+                elif len(y_src.shape) == len(self.prefix_y_embedding.weight.shape):
+                    y_src = torch.cat([self.prefix_y_embedding.weight.to(self.prefix_embedding.weight.device), y_src], 0)
+                else:
+                    y_src = torch.cat([y_src.unsqueeze(1), self.prefix_y_embedding.weight.to(self.prefix_embedding.weight.device)], 0)            
             else:
-                y_src = torch.cat([y_src.unsqueeze(1), self.prefix_y_embedding.to(self.prefix_embedding.weight.device)], 0)
+                if len(y_src.shape) > len(self.prefix_y_embedding.shape):
+                    y_src = torch.cat([self.prefix_y_embedding.to(self.prefix_embedding.weight.device).unsqueeze(1), y_src], 0)
+                elif len(y_src.shape) == len(self.prefix_y_embedding.shape):
+                    y_src = torch.cat([self.prefix_y_embedding.to(self.prefix_embedding.weight.device), y_src], 0)
+                else:
+                    y_src = torch.cat([y_src.unsqueeze(1), self.prefix_y_embedding.to(self.prefix_embedding.weight.device)], 0)
 
         y_src = self.y_encoder(y_src.unsqueeze(-1) if len(y_src.shape) < len(x_src.shape) else y_src)
 
@@ -287,19 +302,3 @@ class TransformerEncoderDiffInit(Module):
             output = self.norm(output)
 
         return output
-
-# class BoostedTransformer(TransformerModel):
-#     def __init__(self, encoder, n_out, ninp, nhead, nhid, nlayers, dropout=0.0, style_encoder=None, y_encoder=None,
-#                  pos_encoder=None, decoder=None, input_normalization=False, init_method=None, pre_norm=False,
-#                  activation='gelu', recompute_attn=False, num_global_att_tokens=0, full_attention=False,
-#                  all_layers_same_init=False, efficient_eval_masking=True, prefix_size=0, n_classes=2,
-#                  embed_path="embeddings", n_iters=10, boost_lr=1e-3):
-#         if prefix_size <= 0:
-#             raise ValueError("BoostedTransformer requires a positive prefix_size")
-#         super().__init__(encoder, n_out, ninp, nhead, nhid, nlayers, dropout=dropout, style_encoder=style_encoder, y_encoder=y_encoder, pos_encoder=pos_encoder, decoder=decoder, input_normalization=input_normalization, init_method=init_method, pre_norm=pre_norm, activation=activation, recompute_attn=recompute_attn, num_global_att_tokens=num_global_att_tokens, full_attention=full_attention, all_layers_same_init=all_layers_same_init, efficient_eval_masking=efficient_eval_masking, prefix_size=prefix_size, n_classes=n_classes)
-
-
-#     def forward(self, src, src_mask=None, single_eval_pos=None):
-#         super().forward(src, src_mask, single_eval_pos)
-
-#     def fit():

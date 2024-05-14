@@ -144,7 +144,19 @@ def main_f(args):
                     # tt_tasks.append(f'zs-preproc-{fsm}-32')
                     tt_tasks.append(f'pt1000-10ens-randinit-avg-top2-reseed-100cl-long-{fsm}')
                     tt_tasks.append(f'pt1000-10ens-randinit-avg-top2-unif-reseed-100cl-long-{fsm}')
-        #CASE 2: small datasets
+        #CASE 2: regression datasets
+        elif task == "tunetables-regression":
+            if skip_fs:
+                tt_tasks = [
+                    "pt10-long",
+                    "pt10-uniform-long",
+                ]
+            else:
+                tt_tasks = []
+                for fsm in feat_sel_method:
+                    tt_tasks.append(f'pt10-long-{fsm}')
+                    tt_tasks.append(f'pt10-uniform-long-{fsm}')
+        #CASE 3: small datasets
         elif n_samples <= LOWER_CUTOFF:
             if skip_fs:
                 # if args.privacy_sweep:
@@ -247,8 +259,8 @@ def main_f(args):
         base_seed = args.seed
         i = 0
         for task in tt_tasks:
-            #NOTE: Non-uniform bptt should be set to default for TT
-            if 'unif' not in task:
+            #NOTE: Non-uniform bptt should be set to default for TT classification
+            if 'unif' not in task and 'regression' not in task:
                 args.bptt = -1
             else:
                 args.bptt = args.bptt_backup
@@ -275,7 +287,10 @@ def main_f(args):
             if args.verbose:
                 print("Best epoch results for", dataset.strip(), "split", split, "task", task.strip(), ":", res)
             all_res_d[task] = res
-            all_res[task] = max(res.get("Val_Accuracy", 0.0), res.get("Val_nc_Accuracy", 0.0), res.get("Ens_Val_Accuracy", 0.0), res.get("Ens_Val_Accuracy_NC", 0.0))
+            if task == "tunetables-regression":
+                all_res[task] = max(res.get("Val_R2", -1e6), res.get("Val_nc_R2", -1e6), res.get("Ens_Val_R2", -1e6), res.get("Ens_Val_R2_NC", -1e6))
+            else:
+                all_res[task] = max(res.get("Val_Accuracy", 0.0), res.get("Val_nc_Accuracy", 0.0), res.get("Ens_Val_Accuracy", 0.0), res.get("Ens_Val_Accuracy_NC", 0.0))
         best_task = max(all_res, key=all_res.get)
         time_taken = time.time() - start_time
         if do_wandb:

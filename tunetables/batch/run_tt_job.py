@@ -354,7 +354,7 @@ def main_f(args):
                     pass
             if args.wandb_project != '':
                 next_task['wandb_project'] = args.wandb_project
-            if args.resume != '':
+            if args.resume is not None:
                 next_task['resume'] = args.resume
             if args.epochs > 0:
                 next_task['epochs'] = args.epochs
@@ -536,7 +536,7 @@ if __name__ == '__main__':
     parser.add_argument('--base_path', type=str, default='data', help='Path to TuneTables dataset directory')
     parser.add_argument('--datasets', type=str, default='../metadata/subset.txt', help='Path to datasets text file')
     parser.add_argument('--tasks', type=str, default='../metadata/subset_tasks.txt', help='Tasks to run')
-    parser.add_argument('--resume', type=str, default='../models/prior_diff_real_checkpoint_n_0_epoch_42.cpkt', help='Checkpoint to resume from')
+    parser.add_argument('--resume', type=str, default=None, help='Checkpoint to resume from')
     parser.add_argument('--bptt', type=int, default=-1, help='bptt batch size')
     parser.add_argument('--adaptive_bptt', action='store_true', help='Whether to use adaptive bptt')
     parser.add_argument('--splits', nargs='+', type=int, default=[0], help='Splits to run')

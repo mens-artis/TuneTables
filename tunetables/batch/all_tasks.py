@@ -13,8 +13,34 @@ base_dict = {
     'wandb_log' : '',
     'do_preprocess' : '',
     'max_time' : 36000,
-    'workers' : 4,
+    'workers' : 8,
+    'resume' : './models_diff/prior_diff_real_checkpoint_n_0_epoch_-1.ckpt',
 }
+
+base_reg_dict = {
+    'prior_type' : 'real',
+    'pad_features' : '',
+    'epochs' : 31,
+    'validation_period' : 3,
+    'save_every_k_epochs' : 30,
+    'aggregate_k_gradients' : 4,
+    'early_stopping' : 5,
+    'lr' : 0.0005,
+    'subset_features_method' : 'pca',
+    'wandb_log' : '',
+    'uniform_bptt' : '',
+    'emsize' : 64,
+    'nlayers' : 2,
+    'do_preprocess' : '',
+    'max_time' : 36000,
+    'workers' : 8,
+}
+
+base_reg_uci_dict = copy.deepcopy(base_reg_dict)
+base_reg_uci_dict['resume'] = './models_diff/uci_pfn.ckpt'
+
+mn_reg_dict = copy.deepcopy(base_reg_dict)
+mn_reg_dict['resume'] = './models_diff/tabpfn_E100_priortyperegression_prior_bag_05_14_2024_15_43_47_epoch_10.ckpt'
 
 pt10_dict = {
         'prompt_tuning' : '',
@@ -92,9 +118,9 @@ pt10_long_dict = copy.deepcopy(pt10_dict)
 pt10_long_dict['epochs'] = 201
 pt10_long_dict['save_every_k_epochs'] = 202
 pt10_long_dict['validation_period'] = 3
-pt10_long_dict['early_stopping'] = 5
+pt10_long_dict['early_stopping'] = 3
 pt10_long_dict['aggregate_k_gradients'] = 4
-pt10_long_dict['lr'] = 0.00005
+pt10_long_dict['lr'] = 0.15
 pt10_long_pca_dict = copy.deepcopy(pt10_long_dict)
 pt10_long_pca_dict['subset_features_method'] = 'pca'
 pt10_long_mutinf_dict = copy.deepcopy(pt10_long_dict)
@@ -110,9 +136,9 @@ pt10_unif_long_dict = copy.deepcopy(pt10_unif_dict)
 pt10_unif_long_dict['epochs'] = 201
 pt10_unif_long_dict['save_every_k_epochs'] = 202
 pt10_unif_long_dict['validation_period'] = 3
-pt10_unif_long_dict['early_stopping'] = 5
+pt10_unif_long_dict['early_stopping'] = 3
 pt10_unif_long_dict['aggregate_k_gradients'] = 4
-pt10_unif_long_dict['lr'] = 0.00005
+pt10_unif_long_dict['lr'] = 0.15
 pt10_unif_long_pca_dict = copy.deepcopy(pt10_unif_long_dict)
 pt10_unif_long_pca_dict['subset_features_method'] = 'pca'
 pt10_unif_long_mutinf_dict = copy.deepcopy(pt10_unif_long_dict)
@@ -232,9 +258,9 @@ pt1000_xlong_dict = copy.deepcopy(pt1000_dict)
 pt1000_xlong_dict['epochs'] = 201
 pt1000_xlong_dict['save_every_k_epochs'] = 202
 pt1000_xlong_dict['validation_period'] = 3
-pt1000_xlong_dict['early_stopping'] = 5
+pt1000_xlong_dict['early_stopping'] = 3
 pt1000_xlong_dict['aggregate_k_gradients'] = 4
-pt1000_xlong_dict['lr'] = 0.00005
+pt1000_xlong_dict['lr'] = 0.15
 pt1000_xlong_pca_dict = copy.deepcopy(pt1000_xlong_dict)
 pt1000_xlong_pca_dict['subset_features_method'] = 'pca'
 pt1000_xlong_mutinf_dict = copy.deepcopy(pt1000_xlong_dict)
@@ -266,9 +292,9 @@ pt1000_unif_xlong_dict = copy.deepcopy(pt1000_unif_dict)
 pt1000_unif_xlong_dict['epochs'] = 201
 pt1000_unif_xlong_dict['save_every_k_epochs'] = 202
 pt1000_unif_xlong_dict['validation_period'] = 3
-pt1000_unif_xlong_dict['early_stopping'] = 5
+pt1000_unif_xlong_dict['early_stopping'] = 3
 pt1000_unif_xlong_dict['aggregate_k_gradients'] = 4
-pt1000_unif_xlong_dict['lr'] = 0.00005
+pt1000_unif_xlong_dict['lr'] = 0.15
 pt1000_unif_xlong_pca_dict = copy.deepcopy(pt1000_unif_xlong_dict)
 pt1000_unif_xlong_pca_dict['subset_features_method'] = 'pca'
 pt1000_unif_xlong_mutinf_dict = copy.deepcopy(pt1000_unif_xlong_dict)
@@ -488,6 +514,9 @@ ens_randinit_avg_top1_reseed_small_highlr_longep_dict['tuned_prompt_size'] = 10
 all_tasks = {
     'debug' : debug_dict,
     'ft' : base_dict,
+    'randinit-reg' : base_reg_dict,
+    'ft-reg-uci' : base_reg_uci_dict,
+    'ft-reg-mn' : mn_reg_dict,
     'pt2' : pt2_dict,
     'pt2-uniform' : pt2_unif_dict,
     'pt2-uniform-kl' : pt2_unif_kl_dict,

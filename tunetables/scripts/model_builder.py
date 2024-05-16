@@ -34,6 +34,7 @@ def save_model(model, path, filename, config_sample):
     #Change permissions to allow group access
     os.chmod(target_path, 0o777)
     os.chmod(config_sample['base_path'], 0o777)
+    breakpoint()
     try:
         #TODO: something about the target path is making the model unhappy
         torch.save((model.state_dict(), None, config_sample), target_path)
@@ -412,7 +413,9 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
         sep_samp = get_fixed_batch_sampler(config.get('bptt', 1024) + config.get('bptt_extra_samples', 128))
     else:
         sep_samp = get_uniform_single_eval_pos_sampler(config.get('max_eval_pos', config['bptt']), min_len=config.get('min_eval_pos', 0))
-        
+    
+    # breakpoint()
+
     model, results_dict, data_for_fitting, test_loader = train(args
                   , dataloader
                   , loss

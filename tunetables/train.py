@@ -237,12 +237,9 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     print(f"WARNING: bptt {bptt} is larger than the number of samples in the training set, {n_samples}. Setting bptt=128.")
                 bptt = 128
                 
-            
-        
         seed_all(extra_prior_kwargs_dict.get('rand_seed', 0))
 
         X, y = X_train, y_train
-
 
         if target_type == 'classification':
             #Permutation of label order
@@ -493,11 +490,12 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                              n_classes=num_classes, prefix_label_probs=label_weights, num_features=extra_prior_kwargs_dict.get("num_features", 100), 
                              do_regression=do_regression, **model_extra_args
                              )
-    model.criterion = criterion    
+    model.criterion = criterion
+    encoder_mismatch = False
+    decoder_mismatch = False
     if load_weights_from_this_state_dict is not None:
-        encoder_mismatch = False
-        decoder_mismatch = False
-        if load_weights_from_this_state_dict.get('criterion.weight', False) and (do_kl_loss or target_type == 'regression'):
+        
+        if (load_weights_from_this_state_dict.get('criterion.weight', None) is not None) and (do_kl_loss or target_type == 'regression'):
             load_weights_from_this_state_dict.pop('criterion.weight')
         if num_classes > 10:
             #initialize a new decoder head
@@ -605,6 +603,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             outputs = torch.cat(output_list, dim=0).cpu().numpy()
             predictions = torch.cat(prediction_list, dim=0).cpu().numpy()
             targets = torch.cat(target_list, dim=0).cpu().numpy()
+            print("Targets: ", targets[:10])
+            print("Predictions: ", predictions[:10])
 
         results = dict()
         warnings.filterwarnings("ignore")

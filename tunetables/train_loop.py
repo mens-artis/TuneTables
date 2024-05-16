@@ -124,11 +124,11 @@ def reload_config(config_type='causal', task_type='multiclass', longer=0, args=N
     if config_type == 'real':
         config = {
         "dropout": 0.0,
-        "emsize": 512,
-        "nlayers": 12,
-        "num_features": 100,
-        "nhead": 4,
-        "nhid_factor": 2,
+        "emsize": args.emsize,
+        "nlayers": args.nlayers,
+        "num_features": args.max_features,
+        "nhead": args.nhead,
+        "nhid_factor": args.nhid_factor,
         "eval_positions": None,
         "seq_len_used": args.bptt,
         "sampling": 'normal',
@@ -141,7 +141,7 @@ def reload_config(config_type='causal', task_type='multiclass', longer=0, args=N
         
     #hard-coded limits of original TabPFN model
     config['max_num_classes'] = args.max_num_classes
-    config["max_features"] = 100
+    config["max_features"] = args.max_features
 
     #prompt tuning
     config['prompt_tuning'] = args.prompt_tuning
@@ -161,8 +161,8 @@ def reload_config(config_type='causal', task_type='multiclass', longer=0, args=N
     config['lr'] = args.lr
     config['early_stopping_patience'] = args.early_stopping
     config['rand_seed'] = args.seed
-    config['emsize'] = 512
-    config['nhead'] = config['emsize'] // 128
+    config['emsize'] = args.emsize
+    config['nhead'] = args.nhead
     config['max_eval_pos'] = config['bptt'] = args.bptt
     config['batch_size'] = args.batch_size
     config['bptt_search'] = args.bptt_search
@@ -207,10 +207,15 @@ def reload_config(config_type='causal', task_type='multiclass', longer=0, args=N
     config['train_mixed_precision'] = True
 
     if args.resume is not None:
-        try:
-            model_state, optimizer_state_load, config_sample_load = torch.load(args.resume, map_location='cpu')
-        except:
-            model_state, _, optimizer_state_load, config_sample_load = torch.load(args.resume, map_location='cpu')
+        unloaded = torch.load(args.resume, map_location='cpu')
+        if len(unloaded) == 4:
+            model_state, _, optimizer_state_load, config_sample_load = unloaded
+        elif len(unloaded) == 3:
+            model_state, optimizer_state_load, config_sample_load = unloaded
+        elif len(unloaded) == 2:
+            model_state, config_sample_load = unloaded
+        elif len(unloaded) == 1:
+            model_state = unloaded
         module_prefix = 'module.'
         config["state_dict"] = {k.replace(module_prefix, ''): v for k, v in model_state.items()}
     else:
@@ -287,7 +292,7 @@ def reload_config(config_type='causal', task_type='multiclass', longer=0, args=N
 def parse_args():
     import argparse
     parser = argparse.ArgumentParser(description='Train a model.')
-    parser.add_argument('--resume', type=str, default="../models/prior_diff_real_checkpoint_n_0_epoch_42.cpkt", help='Path to model checkpoint to resume from.')
+    parser.add_argument('--resume', type=str, default=None, help='Path to model checkpoint to resume from.')
     parser.add_argument('--save_path', type=str, default="./logs", help='Path to save new checkpoints.')
     parser.add_argument('--prior_type', type=str, default="real", help='Type of prior to use (real, prior_bag).')
     parser.add_argument('--data_path', type=str, default=".", help='Path to data.')
@@ -344,6 +349,11 @@ def parse_args():
     parser.add_argument('--private_model', action='store_true', help='Train model with differential privacy.')
     parser.add_argument('--private_data', action='store_true', help='Train with differential privacy added to the dataset.')
     parser.add_argument('--edg', nargs='+', type=str, default=["50", "1e-4", "1.2"], help="Epsilon, delta, gradnorm for differential privacy.")
+    parser.add_argument('--emsize', type=int, default=512, help='Embedding size.')
+    parser.add_argument('--nhead', type=int, default=4, help='Number of heads.')
+    parser.add_argument('--nhid_factor', type=int, default=2, help='Hidden layer size factor.')
+    parser.add_argument('--nlayers', type=int, default=12, help='Number of layers.')
+    parser.add_argument('--max_features', type=int, default=100, help='Maximum number of features.')
     args = parser.parse_args()
     return args
 

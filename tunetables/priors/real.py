@@ -41,8 +41,7 @@ class TabDS(Dataset):
     def __init__(self, X, y):
         #check if NaNs are present in y
         if np.isnan(y).any():
-            print("WARNING: NaNs present in y, dropping them")
-            breakpoint()
+            print(f"WARNING: NaNs present in y shaped {y.shape}, dropping them")
             nan_mask = ~np.isnan(y)
             X = X[nan_mask, ...]
             y = y[nan_mask, ...]

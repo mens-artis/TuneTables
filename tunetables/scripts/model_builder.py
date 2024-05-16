@@ -34,7 +34,6 @@ def save_model(model, path, filename, config_sample):
     #Change permissions to allow group access
     os.chmod(target_path, 0o777)
     os.chmod(config_sample['base_path'], 0o777)
-    breakpoint()
     try:
         #TODO: something about the target path is making the model unhappy
         torch.save((model.state_dict(), None, config_sample), target_path)

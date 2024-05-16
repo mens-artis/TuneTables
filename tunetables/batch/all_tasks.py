@@ -37,10 +37,10 @@ base_reg_dict = {
 }
 
 base_reg_uci_dict = copy.deepcopy(base_reg_dict)
-base_reg_uci_dict['resume'] = './models_diff/uci_pfn.ckpt'
+base_reg_uci_dict['resume'] = '/home/benfeuer/TuneTables/tunetables/models_diff/uci_pfn.cpkt'
 
 mn_reg_dict = copy.deepcopy(base_reg_dict)
-mn_reg_dict['resume'] = './models_diff/tabpfn_E100_priortyperegression_prior_bag_05_14_2024_15_43_47_epoch_10.ckpt'
+mn_reg_dict['resume'] = '/home/benfeuer/TuneTables/tunetables/models_diff/tabpfn_E100_priortyperegression_prior_bag_05_14_2024_15_43_47_epoch_10.cpkt'
 
 pt10_dict = {
         'prompt_tuning' : '',

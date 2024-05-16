@@ -603,8 +603,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             outputs = torch.cat(output_list, dim=0).cpu().numpy()
             predictions = torch.cat(prediction_list, dim=0).cpu().numpy()
             targets = torch.cat(target_list, dim=0).cpu().numpy()
-            print("Targets: ", targets[:10])
-            print("Predictions: ", predictions[:10])
 
         results = dict()
         warnings.filterwarnings("ignore")

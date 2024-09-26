@@ -12,6 +12,10 @@ While TabPFN achieves very strong performance on small tabular datasets, its cur
 
 This codebase extends the excellent public repository [TabPFN](https://github.com/automl/tabpfn), by Noah Hollmann, Samuel Müller, Katharina Eggensperger, and Frank Hutter.
 
+## Quick start
+
+Please check out our notebook, [Getting Started with TuneTables](https://www.kaggle.com/code/benfeuer/getting-started-with-tunetables), for an interactive quick start.
+
 ## Table of Contents
 1. [Hardware Requirements](#hardware-requirements)
 2. [Installation](#installation)

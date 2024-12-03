@@ -123,6 +123,11 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     using_dist, rank, device = init_dist(device)
     start_time = time.time()
 
+    #set verbose to True
+    if not verbose:
+        verbose = True
+        print("Currently, verbose must be set to True (pass --verbose); this will change in a future release")
+
     #verify that the save path exists
     if not os.path.exists(extra_prior_kwargs_dict.get('save_path')):
         try:
@@ -1254,6 +1259,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         prior_grad_dict = gradient_dict
         # probs np and labels np are used by update_ensemble_acc for ECE and TACE
         #OUTPUT_DICT[0] contains val_outputs, test_outputs, val_outputs_nc, test_outputs_nc
+
         probs_np = output_dict[0][0]
         labels_np = test_targets[0]
         probs_np_test = output_dict[0][1]

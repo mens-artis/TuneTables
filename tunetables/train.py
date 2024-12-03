@@ -480,7 +480,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                              y_encoder=y_encoder_generator(1, emsize), input_normalization=input_normalization,
                              pos_encoder=(pos_encoder_generator or positional_encodings.NoPositionalEncoding)(emsize, bptt*2),
                              decoder=decoder, init_method=initializer, efficient_eval_masking=efficient_eval_masking, prefix_size=prefix_size,
-                             n_classes=num_classes, prefix_label_probs=label_weights, num_features=extra_prior_kwargs_dict.get("num_features", 100), **model_extra_args
+                             n_classes=num_classes, prefix_label_probs=label_weights, num_features=extra_prior_kwargs_dict.get("num_features", 100), linear=extra_prior_kwargs_dict.get("linear", False), **model_extra_args
                              )
     model.criterion = criterion    
     if load_weights_from_this_state_dict is not None:

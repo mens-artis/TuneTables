@@ -200,6 +200,7 @@ def reload_config(config_type='causal', task_type='multiclass', longer=0, args=N
     config['data_path'] = args.data_path
     config["base_path"] = args.save_path
     config['train_mixed_precision'] = True
+    config['linear'] = args.linear
 
     if args.resume is not None:
         model_state, optimizer_state_load, config_sample_load = torch.load(args.resume, map_location='cpu')
@@ -336,6 +337,7 @@ def parse_args():
     parser.add_argument('--private_model', action='store_true', help='Train model with differential privacy.')
     parser.add_argument('--private_data', action='store_true', help='Train with differential privacy added to the dataset.')
     parser.add_argument('--edg', nargs='+', type=str, default=["50", "1e-4", "1.2"], help="Epsilon, delta, gradnorm for differential privacy.")
+    parser.add_argument('--linear', action='store_true', help='Whether to use a linear model.')
     args = parser.parse_args()
     return args
 

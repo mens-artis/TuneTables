@@ -403,6 +403,7 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
                         , 'subset_rows_bagging': config.get('subset_rows_bagging', 0)
                         , 'bptt_search' : config.get('bptt_search', False)
                         , 'workers' : config.get('workers', 1)
+                        , 'linear' : config.get('linear', False)
                         , **extra_kwargs
     }
 

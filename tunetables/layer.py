@@ -5,6 +5,10 @@ import torch
 from torch.nn.modules.transformer import _get_activation_fn, Module, Tensor, Optional, MultiheadAttention, Linear, Dropout, LayerNorm
 from torch.utils.checkpoint import checkpoint
 
+try:
+    from taylor_series_linear_attention import TaylorSeriesLinearAttn
+except ImportError:
+    print("TaylorSeriesLinearAttn not found, linear will not work (pip install taylor-series-linear-attention)")
 
 class TransformerEncoderLayer(Module):
     r"""TransformerEncoderLayer is made up of self-attn and feedforward network.
@@ -38,11 +42,15 @@ class TransformerEncoderLayer(Module):
 
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1, activation="relu",
                  layer_norm_eps=1e-5, batch_first=False, pre_norm=False,
-                 device=None, dtype=None, recompute_attn=False) -> None:
+                 device=None, dtype=None, recompute_attn=False, linear=False) -> None:
         factory_kwargs = {'device': device, 'dtype': dtype}
         super().__init__()
-        self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first,
-                                            **factory_kwargs)
+        if linear:
+            print("Using linear attention")
+            self.self_attn = TaylorSeriesLinearAttn(dim_head=d_model, heads=nhead, dropout=dropout)
+        else:
+            self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first,
+                                                **factory_kwargs)
         # Implementation of Feedforward model
         self.linear1 = Linear(d_model, dim_feedforward, **factory_kwargs)
         self.dropout = Dropout(dropout)

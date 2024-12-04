@@ -3,7 +3,6 @@ import argparse
 from datetime import datetime
 from functools import partial
 import torch
-import math
 import numpy as np
 
 import tunetables.encoders as encoders
@@ -29,16 +28,18 @@ def save_model(model, path, filename, config_sample):
 
     config_sample = make_serializable(config_sample)
     target_path = os.path.join(path, filename)
-    if not os.path.exists(target_path):
-        os.makedirs(target_path)
+    if not os.path.exists(path):
+        os.makedirs(path)
     #Change permissions to allow group access
     os.chmod(target_path, 0o777)
     os.chmod(config_sample['base_path'], 0o777)
     try:
         #TODO: something about the target path is making the model unhappy
+        os.makedirs(os.path.join("./models_diff"), exist_ok=True)
         torch.save((model.state_dict(), None, config_sample), target_path)
     except:
         # NOTE: This seems to work as long as you run the script from the base directory
+        os.makedirs(os.path.join("./models_diff"), exist_ok=True)
         target_path = os.path.join("./models_diff", filename)
         torch.save((model.state_dict(), None, config_sample), target_path)
 

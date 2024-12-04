@@ -7,12 +7,13 @@ import json
 from contextlib import nullcontext
 import copy
 import warnings
+from typing import Optional
 
 import torch
 from torch import nn
 from torch import autograd
-from torch.utils.data import Subset
-from torch.cuda.amp import autocast, GradScaler
+# from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 from torch.utils.data import DataLoader
 from torch import nn
 import numpy as np
@@ -28,11 +29,33 @@ import tunetables.utils as utils
 from tunetables.transformer import TransformerModel
 from tunetables.utils import get_cosine_schedule_with_warmup, get_openai_lr, StoreDictKeyPair, get_weighted_single_eval_pos_sampler, get_uniform_single_eval_pos_sampler
 import tunetables.priors as priors
-from tunetables.priors.real import SummarizeAfter, process_data, loop_translate, TabDS, preprocess_input, get_train_dataloader, get_shuffle_index
+from tunetables.priors.real import SummarizeAfter, process_data, loop_translate, TabDS, preprocess_input, get_train_dataloader, get_shuffle_index, get_subset_dl
 from tunetables.losses import kl_divergence
 import tunetables.encoders as encoders
 import tunetables.positional_encodings as positional_encodings
 from tunetables.utils import init_dist, seed_all, EmbeddingConcatenator
+
+class GPULossTracker:
+    """Tracks average loss across batches while keeping everything on GPU until final computation."""
+    def __init__(self, device=None):
+        self.running_loss = torch.tensor(0.0, device=device)
+        self.count = 0
+    
+    def update(self, loss: torch.Tensor) -> None:
+        """Update running loss with the current batch loss."""
+        # Just detach without moving to CPU
+        self.running_loss += loss.detach()
+        self.count += 1
+    
+    def average(self) -> float:
+        """Get the average loss, only moving to CPU at the end."""
+        avg = self.running_loss / max(self.count, 1)
+        return avg.cpu().item()
+    
+    def reset(self) -> None:
+        """Reset the tracker for the next epoch."""
+        self.running_loss.zero_()
+        self.count = 0
 
 def real_data_eval_out(r_model, cl=1000, train_data=None, val_dl=None, softmax_temperature = torch.log(torch.tensor([0.8])), return_probs=False):
 
@@ -92,14 +115,6 @@ def real_data_eval_out(r_model, cl=1000, train_data=None, val_dl=None, softmax_t
             if verbose:
                 print("Error calculating ROC AUC: ", e)
             results['ROC_AUC'] = 0.0
-        try:
-            results['ECE'] = np.round(um.ece(targets, outputs, num_bins=30), 3).item()
-            results['TACE'] = np.round(um.tace(targets, outputs, num_bins=30), 3).item()
-        except Exception as e:
-            if verbose:
-                print("Error calculating ECE/TACE: ", e)
-            results['ECE'] = 0.0
-            results['TACE'] = 0.0
 
         warnings.filterwarnings("default")
         if return_probs:
@@ -118,6 +133,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
           ):
     #ulimit error fix
     torch.multiprocessing.set_sharing_strategy('file_system')
+    #fork warning fix
+    torch.multiprocessing.set_start_method('spawn')
     #set gpu device
     device = gpu_device if torch.cuda.is_available() else 'cpu:0'
     using_dist, rank, device = init_dist(device)
@@ -142,6 +159,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     n_workers = extra_prior_kwargs_dict.get('num_workers', 1)
     extra_prior_kwargs_dict['do_impute'] = True
     extra_prior_kwargs_dict['ohe'] = False
+    linear = extra_prior_kwargs_dict.get('linear', False)
 
     if extra_prior_kwargs_dict.get('pad_features', None):
         num_features = 100
@@ -322,11 +340,11 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                                   not_zs=not_zs)
 
         val_dl = DataLoader(
-            val_ds, batch_size=min(128, y_val.shape[0] // 2), shuffle=False, num_workers=n_workers,
+            val_ds, batch_size=min(bptt, y_val.shape[0] // 2), shuffle=False, num_workers=n_workers,
         )
 
         test_dl = DataLoader(
-            test_ds, batch_size=min(128, y_val.shape[0] // 2), shuffle=False, num_workers=n_workers,
+            test_ds, batch_size=min(bptt, y_val.shape[0] // 2), shuffle=False, num_workers=n_workers,
         )
         # Fix the prior data TabPFN will use for fitting when including real data points
         X_data_for_fitting = []
@@ -358,7 +376,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds = make_datasets(extra_prior_kwargs_dict, do_permute=not_zs, bptt=bptt, steps_per_epoch=steps_per_epoch, is_wrapper=is_wrapper)
         old_bptt = bptt
         dl, val_dl, test_dl, bptt, data_for_fitting  = make_dataloaders(bptt=bptt, not_zs=not_zs)
-
+        val_dl = get_subset_dl(extra_prior_kwargs_dict, val_dl)
         if epochs == 0:
             return None, None, None, test_dl
 
@@ -435,14 +453,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                         if verbose:
                             print("Error calculating ROC AUC: ", e)
                         results['ROC_AUC'] = 0.0
-                    try:
-                        results['ECE'] = np.round(um.ece(targets, outputs, num_bins=30), 3).item()
-                        results['TACE'] = np.round(um.tace(targets, outputs, num_bins=30), 3).item()
-                    except Exception as e:
-                        if verbose:
-                            print("Error calculating ECE/TACE: ", e)
-                        results['ECE'] = 0.0
-                        results['TACE'] = 0.0
                     warnings.filterwarnings("default")
                     return results
             res_dict = dict()
@@ -486,6 +496,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     if load_weights_from_this_state_dict is not None:
         encoder_mismatch = False
         decoder_mismatch = False
+
         if do_kl_loss:
             load_weights_from_this_state_dict.pop('criterion.weight')
         if num_classes > 10:
@@ -609,47 +620,29 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             if verbose:
                 print("Error calculating ROC AUC: ", e)
             results['ROC_AUC'] = 0.0
-        try:
-            results['ECE'] = np.round(um.ece(targets, outputs, num_bins=30), 3).item()
-            results['TACE'] = np.round(um.tace(targets, outputs, num_bins=30), 3).item()
-        except Exception as e:
-            if verbose:
-                print("Error calculating ECE/TACE: ", e)
-            results['ECE'] = 0.0
-            results['TACE'] = 0.0
 
         warnings.filterwarnings("default")
 
         return results, outputs, targets
     
     def train_epoch(e_model, e_optimizer, boost_this_epoch=False, eval_model=None, bptt_search=False):
+        tracker = GPULossTracker(device=device)
         if max_time > 0 and time.time() - start_time > max_time:
             print("Max time reached. Exiting")
             exit(0)
-        e_model.train()  # Turn on the train mode
-        # Confirm that the correct params are frozen and unfrozen
-        if do_prompt_tuning:
-            e_model.freeze_parameters_except_named(params_to_optimize)
-            for n, p in e_model.named_parameters():
-                grad_reqd = False
-                for s in params_to_optimize:
-                    if s in n:
-                        grad_reqd = True
-                assert p.requires_grad == grad_reqd, "Parameter {} does not have the correct grad requirement!".format(n)
-
-        total_loss = 0.
-        total_positional_losses = 0.
-        total_positional_losses_recorded = 0
-        nan_steps = 0
-        ignore_steps = 0
+        epoch_start_time = time.time()
         time_to_get_batch = 0
+        time_to_get_batches = 0
         forward_time = 0
+        forward_times = 0
+        backward_times = 0
+        loss_times = 0
+        grad_times = 0
         step_time = 0
         before_get_batch = time.time()
         batches_seen = 0
         shuffle_every_epoch = extra_prior_kwargs_dict.get('shuffle_every_epoch', False)
         permute_feature_pos = extra_prior_kwargs_dict.get('permute_feature_position_in_ensemble', False)
-
         for batch, (data, targets, single_eval_pos) in enumerate(dl):
             if isinstance(data, list):
                 data = tuple(data)
@@ -668,6 +661,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 data = tuple([data[0][perm_idx, ...], data[1][perm_idx, ...]])
             with cm:
                 time_to_get_batch = time.time() - before_get_batch
+                time_to_get_batches += time_to_get_batch
                 before_forward = time.time()
                 if boosting:
                     single_eval_pos = len(targets) // 2
@@ -675,25 +669,15 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     single_eval_pos = single_eval_pos_gen() if callable(single_eval_pos_gen) else single_eval_pos_gen
                 else:
                     single_eval_pos = max(targets.shape[0] - bptt_extra_samples, 0)
-                with autocast(enabled=scaler is not None):
-                    # TODO: TabPFN transformer doesn't support batched inputs
-                    # if batch_size > 1:
-                    #     data = (data[0].reshape(data[0].shape[0] // batch_size, X.shape[1], batch_size), data[1].reshape(data[1].shape[0] // batch_size, batch_size))
-                    # if verbose and batch == 0:
-                        # print("Start training epoch")
-                        #print(" Data shape: ", data[0].shape, "Targets shape: ", data[1].shape, "Single eval pos: ", single_eval_pos)
-
+                with autocast('cuda', enabled=scaler is not None):
                     # If style is set to None, it should not be transferred to device
                     output = e_model(tuple(e.to(torch.float32).to(device) if torch.is_tensor(e) else e for e in data) if isinstance(data, tuple) else data.to(device)
                                    , single_eval_pos=single_eval_pos)
-                    
-                    # if batch_size > 1:
-                    #     output = output.flatten()
-
                     if not bptt_search:
                         assert output.requires_grad, "Output does not require gradients"
                     forward_time = time.time() - before_forward
-
+                    forward_times += forward_time
+                    before_backward = time.time()
                     if single_eval_pos is not None:
                         targets = targets[single_eval_pos:]
                     if isinstance(criterion, nn.GaussianNLLLoss):
@@ -761,7 +745,9 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 elif bptt_search:
                     pass
                 else:
-                    loss.backward()             
+                    loss.backward()      
+                backward_times += time.time() - before_backward
+                tracker.update(loss)
                 if batch % aggregate_k_gradients == aggregate_k_gradients - 1:
                     if scaler: scaler.unscale_(e_optimizer)
                     torch.nn.utils.clip_grad_norm_(e_model.parameters(), 1.)
@@ -776,35 +762,23 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     e_optimizer.zero_grad()
 
                 step_time = time.time() - before_forward
-
-                if not torch.isnan(loss):
-                    total_loss += losses.mean().cpu().detach().item()
-                    if not do_kl_loss:
-                        total_positional_losses += losses.mean(1).cpu().detach() if single_eval_pos is None else \
-                            nn.functional.one_hot(torch.tensor(single_eval_pos), bptt)*\
-                            losses[:bptt-single_eval_pos].mean().cpu().detach()
-
-                        total_positional_losses_recorded += torch.ones(bptt) if single_eval_pos is None else \
-                            nn.functional.one_hot(torch.tensor(single_eval_pos), bptt)
-                nan_steps += nan_share
-                ignore_steps += (targets == -100).float().mean()
             before_get_batch = time.time()
             batches_seen += 1
         #Total positional losses is a torch tensor of size bptt (batch size)
         if batches_seen < extra_prior_kwargs_dict.get('min_batches_per_epoch', 1):
             raise ValueError("Not enough batches seen in epoch: saw {} batches, expected at least {}".format(batches_seen, extra_prior_kwargs_dict.get('min_batches_per_epoch', 1)))
+        
+        total_loss = tracker.average()
 
-        if boosting:
-            total_positional_losses = torch.zeros(bptt)
-            total_positional_losses_recorded = torch.ones(bptt)
-        if isinstance(total_positional_losses, float):
-            total_positional_losses = torch.zeros(bptt)
-        if isinstance(total_positional_losses_recorded, float):
-            total_positional_losses_recorded = torch.ones(bptt)
+        if verbose:
+            print("train_epoch time: ", round(time.time() - epoch_start_time, 2))
+            print("time to get batches: ", round(time_to_get_batches, 2))
+            print("time in forward: ", round(forward_times, 2))
+            print("time in backward: ", round(backward_times, 2))
 
-        return total_loss / max(steps_per_epoch, 1), (total_positional_losses / total_positional_losses_recorded).tolist(),\
-               time_to_get_batch, forward_time, step_time, nan_steps.cpu().item()/(batch+1),\
-               ignore_steps.cpu().item()/(batch+1)
+        return total_loss, None,\
+               time_to_get_batch, forward_time, step_time, None,\
+               None
 
     def concat_embedding(ec, model, method):
         #extract embedding parameters
@@ -895,26 +869,18 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         f1_macro = np.round(f1_score(labels_np, predictions_np, average='macro'), 3).item()
         try:
             ll = np.round(log_loss(labels_np, probs_np, labels=np.arange(num_classes_local_val)), 3)
-            ece = np.round(um.ece(labels_np, probs_np, num_bins=30), 3)
-            tace = np.round(um.tace(labels_np, probs_np, num_bins=30), 3)
         except Exception as e:
             if verbose:
                 print("Error calculating ll/ECE/TACE: ", e)
             ll = 0.0
-            ece = 0.0
-            tace = 0.0
         test_f1_weighted = np.round(f1_score(labels_np_test, predictions_np_test, average='weighted'), 3).item()
         test_f1_macro = np.round(f1_score(labels_np_test, predictions_np_test, average='macro'), 3).item()
         try:
             test_ll = np.round(log_loss(labels_np_test, probs_np_test, labels=np.arange(num_classes_local_test)), 3)
-            test_ece = np.round(um.ece(labels_np_test, probs_np_test, num_bins=30), 3)
-            test_tace = np.round(um.tace(labels_np_test, probs_np_test, num_bins=30), 3)
         except Exception as e:
             if verbose:
                 print("Error calculating ll/ECE/TACE: ", e)
             test_ll = 0.0
-            test_ece = 0.0
-            test_tace = 0.0
         if do_prompt_tuning:
             predictions_np_nc = np.argmax(probs_np_nc, axis=1)
             predictions_np_nc_test = np.argmax(probs_np_nc_test, axis=1)
@@ -934,26 +900,18 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 test_roc_auc_nc = 0.0
             try:
                 nc_ll = np.round(log_loss(labels_np_nc, probs_np_nc, labels=np.arange(num_classes_local_val)), 3)
-                nc_ece = np.round(um.ece(labels_np_nc, probs_np_nc, num_bins=30), 3)
-                nc_tace = np.round(um.tace(labels_np_nc, probs_np_nc, num_bins=30), 3)
             except Exception as e:
                 if verbose:
                     print("Error calculating ll/ECE/TACE: ", e)
                 nc_ll = 0.0
-                nc_ece = 0.0
-                nc_tace = 0.0
             nc_test_f1_weighted = np.round(f1_score(labels_np_nc_test, predictions_np_nc_test, average='weighted'), 3).item()
             nc_test_f1_macro = np.round(f1_score(labels_np_nc_test, predictions_np_nc_test, average='macro'), 3).item()
             try:
                 nc_test_ll = np.round(log_loss(labels_np_nc_test, probs_np_nc_test, labels=np.arange(num_classes_local_test)), 3)
-                nc_test_ece = np.round(um.ece(labels_np_nc_test, probs_np_nc_test, num_bins=30), 3)
-                nc_test_tace = np.round(um.tace(labels_np_nc_test, probs_np_nc_test, num_bins=30), 3)
             except Exception as e:
                 if verbose:
                     print("Error calculating ll/ECE/TACE: ", e)
                 nc_test_ll = 0.0
-                nc_test_ece = 0.0
-                nc_test_tace = 0.0
         else:
             nc_f1_weighted = 0
             nc_f1_macro = 0
@@ -962,11 +920,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             nc_test_f1_weighted = 0
             nc_test_f1_macro = 0
             nc_ll = 0
-            nc_ece = 0
-            nc_tace = 0
             nc_test_ll = 0
-            nc_test_ece = 0
-            nc_test_tace = 0
         if verbose:
             # print("In update ensemble acc, Targets: ", labels_np[:20])
             print("Ensemble accuracy: ", ens_acc, "Ensemble accuracy (NC): ", ens_acc_nc)
@@ -981,10 +935,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             "Ens_Val_Log_Loss_NC": nc_ll,
             "Ens_Val_ROC_AUC": roc_auc,
             "Ens_Val_ROC_AUC_NC": roc_auc_nc,
-            "Ens_Val_ECE": ece,
-            "Ens_Val_TACE": tace,
-            "Ens_Val_ECE_NC": nc_ece,
-            "Ens_Val_TACE_NC": nc_tace,
             "Ens_Test_Accuracy": ens_acc_test,
             "Ens_Test_Accuracy_NC": ens_acc_test_nc,
             "Ens_Test_F1_Weighted": test_f1_weighted,
@@ -995,25 +945,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             "Ens_Test_Log_Loss_NC": nc_test_ll,
             "Ens_Test_ROC_AUC": test_roc_auc,
             "Ens_Test_ROC_AUC_NC": test_roc_auc_nc,
-            "Ens_Test_ECE": test_ece,
-            "Ens_Test_TACE": test_tace,
-            "Ens_Test_ECE_NC": nc_test_ece,
-            "Ens_Test_TACE_NC": nc_test_tace
         }
         return new_res
-
-    def get_subset_dl(LONG_VAL_EP=False):
-        #NOTE: ignoring LONG_VAL_EP for now as it can disrupt ensemble eval
-        SMALL_VAL_SIZE = min(extra_prior_kwargs_dict.get('val_subset_size', 10), len(val_dl.dataset))
-        if SMALL_VAL_SIZE > len(val_dl.dataset):
-            # val_dl_small = None
-            return val_dl
-        else:
-            # val_dl_small = copy.deepcopy(val_dl)
-            # subset_indices = np.random.choice(len(val_dl.dataset), size=SMALL_VAL_SIZE, replace=False)
-            val_dl_small_ds = Subset(val_dl.dataset, np.arange(SMALL_VAL_SIZE))
-            val_dl_small_dl = DataLoader(val_dl_small_ds, batch_size=val_dl.batch_size, shuffle=False, num_workers=val_dl.num_workers)
-            return val_dl_small_dl
 
     def train_test_loop(t_model, t_optim, t_sched, eval_model, dl, val_dl, test_dl):      
         # Select a fixed training data prior of size bptt
@@ -1037,16 +970,25 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             boost_this_epoch = True if epoch == 1 else False
             epoch_start_time = time.time()
             master_epoch_count.append(1)
-            total_loss, total_positional_losses, time_to_get_batch, forward_time, step_time, nan_share, ignore_share =\
+            # Confirm that the correct params are frozen and unfrozen
+            if do_prompt_tuning:
+                t_model.freeze_parameters_except_named(params_to_optimize)
+                for n, p in t_model.named_parameters():
+                    grad_reqd = False
+                    for s in params_to_optimize:
+                        if s in n:
+                            grad_reqd = True
+                    assert p.requires_grad == grad_reqd, "Parameter {} does not have the correct grad requirement!".format(n)
+            t_model.train()  # Turn on the train mode
+            total_loss, _, time_to_get_batch, forward_time, step_time, _, _ =\
                 train_epoch(t_model, t_optim, boost_this_epoch, eval_model=eval_model, bptt_search=False)
-            val_score = val_score_nc = val_score_concat = val_score_nc_concat = test_score = test_score_nc = test_ece = test_tace = val_ece = val_tace = val_ece_nc = val_tace_nc = test_ece_nc = test_tace_nc = None
+            val_score = val_score_nc = val_score_concat = val_score_nc_concat = test_score = test_score_nc = None
             res_dict = dict()
             res_dict['epoch_train_time'] = np.round(time.time() - epoch_start_time, 3).item()
             res_dict['master_epoch_count'] = len(master_epoch_count)
-            LONG_VAL_EP = ((epoch - 1) % validation_period == 0)
             if real_prior:
-                vrun_dl = get_subset_dl(LONG_VAL_EP=LONG_VAL_EP)
-                val_results, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=real_data_qty, train_data=data_for_fitting, val_dl=vrun_dl)
+                val_start_time = time.time()
+                val_results, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=real_data_qty, train_data=data_for_fitting, val_dl=val_dl)
                 res_dict = dict(res_dict, **{"Val_" + k : v for k, v in val_results.items()})
                 val_score = res_dict["Val_Accuracy"]
                 return_outputs = [val_outputs]
@@ -1056,9 +998,9 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     if do_concat != "":
                         ec = EmbeddingConcatenator(t_model, do_concat, prefix_weights_l)
                         t_model = concat_embedding(ec, t_model, do_concat)
-                        val_score_concat, _, _ = real_data_eval(r_model=ec.get_model(), cl=real_data_qty, train_data=data_for_fitting, val_dl=vrun_dl)
+                        val_score_concat, _, _ = real_data_eval(r_model=ec.get_model(), cl=real_data_qty, train_data=data_for_fitting, val_dl=val_dl)
                         res_dict = dict(res_dict, **{"Val_concat_" + k : v for k, v in val_score_concat.items()})
-                        val_score_nc_concat, _, _ = real_data_eval(r_model=ec.get_model(), cl=0, train_data=data_for_fitting, val_dl=vrun_dl)
+                        val_score_nc_concat, _, _ = real_data_eval(r_model=ec.get_model(), cl=0, train_data=data_for_fitting, val_dl=val_dl)
                         res_dict = dict(res_dict, **{"Val_concat_nc_" + k : v for k, v in val_score_nc_concat.items()})
                         t_model = restore_embedding(ec, t_model)
                         # Update optimizer parameters to include new embedding
@@ -1067,37 +1009,24 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     else:
                         val_score_nc_concat = ""
                         val_score_concat = ""
-                    val_score_nc, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=0, train_data=data_for_fitting, val_dl=vrun_dl)
+                    val_score_nc, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=0, train_data=data_for_fitting, val_dl=val_dl)
                     return_outputs.append(val_outputs)
                     return_targets.append(val_targets)
                     res_dict = dict(res_dict, **{"Val_nc_" + k : v for k, v in val_score_nc.items()})
                 
                 #Early stopping logic
-                score_condition = (total_loss < best_total_loss)
-                #score_condition = (val_score and (val_score > best_val_score))
-
-                # if (not extra_prior_kwargs_dict.get('uniform_bptt', False)) \
-                #     and score_condition:
-                    # if verbose:
-                    #     print("New best val score: ", val_score)
+                score_condition = (round(total_loss, 2) < round(best_total_loss, 2))
+                
                 if score_condition:
                     patience = 0
                     best_total_loss = total_loss
-                    # best_val_score = val_score
                     is_best = True
                     if do_prompt_tuning:
                         best_val_embed = t_model.prefix_embedding.weight.detach().cpu()
-
-                # elif extra_prior_kwargs_dict.get('uniform_bptt', False) and do_prompt_tuning and \
-                #     res_dict.get("Val_nc_Accuracy", 0) > best_val_score_nc:
-                #     if verbose:
-                #         print("New best val score nc: ", res_dict.get("Val_nc_Accuracy", 0))
-                #     patience = 0
-                #     best_val_score_nc = res_dict.get("Val_nc_Accuracy", 0)
-                #     is_best = True
-                #     best_val_embed = t_model.prefix_embedding.weight.detach().cpu()
                 else:
                     patience += 1
+                if verbose:
+                    print("val_epoch time: ", round(time.time() - val_start_time, 2))
 
             elif hasattr(dl, 'validate') and epoch % validation_period == 0:
                 with torch.no_grad():
@@ -1123,12 +1052,12 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 print('-' * 89)
                 print(
                     f'| end of epoch {epoch:3d} | time: {get_time:5.2f}s | mean loss {total_loss:5.2f} | '
-                    #f"| pos losses {','.join([f'{l:5.2f}' for l in total_positional_losses])} | lr {scheduler.get_last_lr()[0]}"
                     f' | data time {time_to_get_batch:5.2f} | step time {step_time:5.2f}'
                     f' | forward time {forward_time:5.2f}' 
-                    f' | nan share {nan_share:5.2f} | ignore share (for classification tasks) {ignore_share:5.4f}'
-                    + (f' | val score {val_score}' if val_score is not None else '')
-                    + (f' | val score nc {res_dict.get("Val_nc_Accuracy", 0)}' if val_score_nc is not None else '')
+                    f' | val score {val_score}' if val_score is not None else ''
+                    f' | val score nc {res_dict.get("Val_nc_Accuracy", 0)}' if val_score_nc is not None else ''
+                    f' | test score {res_dict.get("Test_Accuracy", 0)}' if res_dict.get("Test_Accuracy", 0) is not None else ''
+                    f' | test score nc {res_dict.get("Test_nc_Accuracy", 0)}' if res_dict.get("Test_nc_Accuracy", 0) is not None else ''
                 )
                 print('-' * 89)
                 if epoch_callback is not None and rank == 0:
@@ -1184,7 +1113,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             try:
                 dl, bptt = get_train_dataloader(dl.dataset, bptt=bptt, shuffle=True, num_workers=n_workers, drop_last=True, agg_k_grads=aggregate_k_gradients)
                 with torch.no_grad():
-                    total_loss, total_positional_losses, time_to_get_batch, forward_time, step_time, nan_share, ignore_share = train_epoch(model, optimizer, False, eval_model=eval_model, bptt_search=True)
+                    total_loss, _, time_to_get_batch, forward_time, step_time, nan_share, _ = train_epoch(model, optimizer, False, eval_model=eval_model, bptt_search=True)
             except RuntimeError as e:
                 if 'out of memory' in str(e):
                     if verbose:
@@ -1257,7 +1186,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         output_dict[i], test_targets, results_dict = train_test_loop(model, optimizer, sched_obj, eval_model, dl, val_dl, test_dl)
         res_dict_ensemble[i] = best_results = results_dict
         prior_grad_dict = gradient_dict
-        # probs np and labels np are used by update_ensemble_acc for ECE and TACE
         #OUTPUT_DICT[0] contains val_outputs, test_outputs, val_outputs_nc, test_outputs_nc
 
         probs_np = output_dict[0][0]
@@ -1415,7 +1343,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             model = model.module
             dl = None
         # todo: model_builder.py expects two outputs: model, results_dict
-        #return total_loss, total_positional_losses, model.to('cpu'), dl
         return model, best_results, data_for_fitting, None
 
     return model, best_results, data_for_fitting, None

@@ -26,8 +26,8 @@ from sklearn.manifold import LocallyLinearEmbedding
 from sklearn.manifold import TSNE
 
 import torch
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
+
 
 from tunetables.utils import normalize_data, remove_outliers, normalize_by_used_features_f
 from tunetables.priors import real
@@ -900,3 +900,15 @@ def get_train_dataloader(ds, bptt=1000, shuffle=True, num_workers=1, drop_last=T
             )
             # raise ValueError(f'Number of batches {len(dl)} not divisible by {agg_k_grads}, please modify aggregation factor.')
         return dl, bptt
+
+def get_subset_dl(extra_prior_kwargs_dict, val_dl):
+    SMALL_VAL_SIZE = min(extra_prior_kwargs_dict.get('val_subset_size', 10), len(val_dl.dataset))
+    if SMALL_VAL_SIZE > len(val_dl.dataset):
+        # val_dl_small = None
+        return val_dl
+    else:
+        # val_dl_small = copy.deepcopy(val_dl)
+        # subset_indices = np.random.choice(len(val_dl.dataset), size=SMALL_VAL_SIZE, replace=False)
+        val_dl_small_ds = Subset(val_dl.dataset, np.arange(SMALL_VAL_SIZE))
+        val_dl_small_dl = DataLoader(val_dl_small_ds, batch_size=val_dl.batch_size, shuffle=False, num_workers=val_dl.num_workers)
+        return val_dl_small_dl

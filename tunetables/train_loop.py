@@ -351,7 +351,7 @@ def train_loop():
 
     print("Saving config ...")
     simple_config = make_serializable(config.copy())
-    os.mkdir(f'{config["base_path"]}/{model_string}')
+    os.makedirs(f'{config["base_path"]}/{model_string}', exist_ok=True)
     config['base_path'] = f'{config["base_path"]}/{model_string}'
     with open(f'{config["base_path"]}/config_diff_real_{model_string}_n_{0}.json', 'w') as f:
         json.dump(simple_config, f, indent=4)

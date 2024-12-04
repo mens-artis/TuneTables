@@ -17,13 +17,14 @@ class TransformerModel(nn.Module):
         super().__init__()
         self.model_type = 'Transformer'
         encoder_layer_creator = lambda: TransformerEncoderLayer(ninp, nhead, nhid, dropout, activation=activation,
-                                                                    pre_norm=pre_norm, recompute_attn=recompute_attn)
+                                                                    pre_norm=pre_norm, recompute_attn=recompute_attn, linear=linear)
         self.transformer_encoder = TransformerEncoder(encoder_layer_creator(), nlayers)\
             if all_layers_same_init else TransformerEncoderDiffInit(encoder_layer_creator, nlayers)
         self.ninp = ninp
         self.encoder = encoder
         self.y_encoder = y_encoder
         self.pos_encoder = pos_encoder
+        self.linear = linear
         self.decoder = decoder(ninp, nhid, n_out) if decoder is not None else nn.Sequential(nn.Linear(ninp, nhid), nn.GELU(), nn.Linear(nhid, n_out))
         self.input_ln = SeqBN(ninp) if input_normalization else None
         self.style_encoder = style_encoder
@@ -50,9 +51,9 @@ class TransformerModel(nn.Module):
         print("Model initialized with following parameters: ")
         print("ninp: {}, nhead: {}, nhid: {}, nlayers: {}, dropout: {}, activation: {}, recompute_attn: {}, "
                 "num_global_att_tokens: {}, full_attention: {}, all_layers_same_init: {}, efficient_eval_masking: {}, "
-                "prefix_size: {}, n_classes: {}, encoder: {}, y_encoder: {}, pos_encoder: {}, style_encoder: {}".format(ninp, nhead, nhid, nlayers, dropout, activation, recompute_attn,
+                "prefix_size: {}, n_classes: {}, encoder: {}, y_encoder: {}, pos_encoder: {}, style_encoder: {}, linear: {}".format(ninp, nhead, nhid, nlayers, dropout, activation, recompute_attn,
                                                         num_global_att_tokens, full_attention, all_layers_same_init,
-                                                        efficient_eval_masking, prefix_size, n_classes, encoder, y_encoder, pos_encoder, style_encoder))
+                                                        efficient_eval_masking, prefix_size, n_classes, encoder, y_encoder, pos_encoder, style_encoder, linear))
 
     def __setstate__(self, state):
         super().__setstate__(state)
@@ -124,9 +125,10 @@ class TransformerModel(nn.Module):
             nn.init.zeros_(layer.linear2.weight)
             nn.init.zeros_(layer.linear2.bias)
             attns = layer.self_attn if isinstance(layer.self_attn, nn.ModuleList) else [layer.self_attn]
-            for attn in attns:
-                nn.init.zeros_(attn.out_proj.weight)
-                nn.init.zeros_(attn.out_proj.bias)
+            if not self.linear:
+                for attn in attns:
+                    nn.init.zeros_(attn.out_proj.weight)
+                    nn.init.zeros_(attn.out_proj.bias)
 
     def init_prefix_weights(self):
         initrange = 1.

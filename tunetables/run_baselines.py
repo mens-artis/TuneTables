@@ -188,7 +188,7 @@ def run_eval(dataset_name, base_path, max_time):
             except Exception as e:
                 print("Error calculating ROC AUC: ", e)
                 results['Val_ROC_AUC'] = 0.0
-            results['Val_ECE'] = np.round(um.ece(y_val, val_outputs, num_bins=30), 3).item()
+            # results['Val_ECE'] = np.round(um.ece(y_val, val_outputs, num_bins=30), 3).item()
             results['Val_TACE'] = np.round(um.tace(y_val, val_outputs, num_bins=30), 3).item()
             results[f'Test_Accuracy'] = np.round(accuracy_score(y_test, test_predictions), 3).item()
             results[f'Test_Log_Loss'] = np.round(log_loss(y_test, test_outputs, labels=np.arange(num_classes)), 3).item()

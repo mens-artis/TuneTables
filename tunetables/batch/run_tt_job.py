@@ -507,15 +507,15 @@ def main_f(args):
                     if "tunetables" in task:
                         gcp_txt += "\"" + task_str + "\"" "\n"
                     else:
-
-                 # TODO: opacus brnach was probably behind but had this:       gcp_txt += task_str
-                 #
-                 #   if 'tunetables' in task:
-                 #       args = tt_args
-                 #   args.wandb_log = wandb_bu
-                 #   if args.gcp_run:
-                 #       gcp_txt += "\"" + task_str + "\"" "\n"
-                 #
+                        pass
+                    # TODO: opacus branch was probably behind but had this:       gcp_txt += task_str
+                    #
+                    #   if 'tunetables' in task:
+                    #       args = tt_args
+                    #   args.wandb_log = wandb_bu
+                    #   if args.gcp_run:
+                    #       gcp_txt += "\"" + task_str + "\"" "\n"
+                    #
                     if res:
                         print("Results for", dataset.strip(), "split", split, "task", task.strip(), ":", res)
     if args.gcp_run:

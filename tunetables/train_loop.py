@@ -180,6 +180,7 @@ def reload_config(config_type='causal', task_type='multiclass', longer=0, args=N
     #differential privacy
     config['private_model'] = args.private_model
     config['private_data'] = args.private_data
+    config['private_val'] = args.private_val_data
     config['epsilon'], config['delta'], config['gradnorm'] = float(args.edg[0]), float(args.edg[1]), float(args.edg[2])
     
     #meta-parameters
@@ -336,6 +337,7 @@ def parse_args():
     parser.add_argument('--workers', type=int, default=8, help='Number of workers for data loading.')
     parser.add_argument('--private_model', action='store_true', help='Train model with differential privacy.')
     parser.add_argument('--private_data', action='store_true', help='Train with differential privacy added to the dataset.')
+    parser.add_argument('--private_val_data', action='store_true', help='Validation set is differentially private.')
     parser.add_argument('--edg', nargs='+', type=str, default=["50", "1e-4", "1.2"], help="Epsilon, delta, gradnorm for differential privacy.")
     parser.add_argument('--linear', action='store_true', help='Whether to use a linear model.')
     args = parser.parse_args()

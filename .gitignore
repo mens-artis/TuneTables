@@ -15,6 +15,9 @@ driver_installer.run
 tunetables/data/*
 tabpfn/*
 
+#old folders
+tabpfn
+
 # results and outfiles
 *.out
 */logs/

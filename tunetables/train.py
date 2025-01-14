@@ -25,9 +25,16 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
+try:
+    from opacus import PrivacyEngine
+    from opacus.validators import ModuleValidator
+    from opacus.utils.batch_memory_manager import BatchMemoryManager
+except:
+    print("Could not import opacus (pip install opacus) for differential privacy")
+
 import tunetables.utils as utils
 from tunetables.transformer import TransformerModel
-from tunetables.utils import get_cosine_schedule_with_warmup, get_openai_lr, StoreDictKeyPair, get_weighted_single_eval_pos_sampler, get_uniform_single_eval_pos_sampler
+from tunetables.utils import get_cosine_schedule_with_warmup, get_openai_lr, StoreDictKeyPair, get_weighted_single_eval_pos_sampler, get_uniform_single_eval_pos_sampler, load_and_combine_attention_weights
 import tunetables.priors as priors
 from tunetables.priors.real import SummarizeAfter, process_data, loop_translate, TabDS, preprocess_input, get_train_dataloader, get_shuffle_index, get_subset_dl
 from tunetables.losses import kl_divergence
@@ -40,18 +47,18 @@ class GPULossTracker:
     def __init__(self, device=None):
         self.running_loss = torch.tensor(0.0, device=device)
         self.count = 0
-    
+
     def update(self, loss: torch.Tensor) -> None:
         """Update running loss with the current batch loss."""
         # Just detach without moving to CPU
         self.running_loss += loss.detach()
         self.count += 1
-    
+
     def average(self) -> float:
         """Get the average loss, only moving to CPU at the end."""
         avg = self.running_loss / max(self.count, 1)
         return avg.cpu().item()
-    
+
     def reset(self) -> None:
         """Reset the tracker for the next epoch."""
         self.running_loss.zero_()
@@ -140,6 +147,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     using_dist, rank, device = init_dist(device)
     start_time = time.time()
 
+    #FLAGS
+
     #set verbose to True
     if not verbose:
         verbose = True
@@ -156,10 +165,18 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
 
     max_time = extra_prior_kwargs_dict.get('max_time', 0)
     do_kl_loss = extra_prior_kwargs_dict.get('kl_loss', False)
+    do_private = extra_prior_kwargs_dict.get('private_model', False)
+    if extra_prior_kwargs_dict.get('private_data', False):
+        private_data = True
+        do_private = False
     n_workers = extra_prior_kwargs_dict.get('num_workers', 1)
+    # todo: main (3 lines)
     extra_prior_kwargs_dict['do_impute'] = True
     extra_prior_kwargs_dict['ohe'] = False
     linear = extra_prior_kwargs_dict.get('linear', False)
+    # todo: apacus (2 lines)
+    not_zs = extra_prior_kwargs_dict.get('zs_eval_ensemble', 0) == 0
+    do_zs = (not not_zs) and (not do_kl_loss)
 
     if extra_prior_kwargs_dict.get('pad_features', None):
         num_features = 100
@@ -183,11 +200,14 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     if real_data_qty <= 0:
         real_data_qty = bptt
 
-    def make_datasets(extra_prior_kwargs_dict, do_permute=True, bptt = 0, steps_per_epoch=None, is_wrapper=False):
+    def make_datasets(extra_prior_kwargs_dict, do_permute=True, bptt = 0, steps_per_epoch=None, is_wrapper=False, private_ds=False):
 
         args.summerize_after_prep = extra_prior_kwargs_dict.get("summerize_after_prep", "False")
         args.preprocess_type = extra_prior_kwargs_dict.get("preprocess_type", "none")
         args.rand_seed = extra_prior_kwargs_dict.get('rand_seed', 0)
+        args.private_data = private_ds
+        args.epsilon = str(extra_prior_kwargs_dict.get('epsilon', 0.0))
+        args.private_val = extra_prior_kwargs_dict.get('private_val', False)
 
         if is_wrapper:
             train_index = dataset.split_indeces[0]
@@ -363,8 +383,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     #REAL PRIOR
     if real_prior:
         #load data
-        not_zs = extra_prior_kwargs_dict.get('zs_eval_ensemble', 0) == 0
-        do_zs = (not not_zs) and (not do_kl_loss)
         seed_all(extra_prior_kwargs_dict.get('rand_seed'))
 
         if do_kl_loss:
@@ -373,7 +391,13 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 extra_prior_kwargs_dict['uniform_bptt'] = True
             
         data_for_fitting = None
-        X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds = make_datasets(extra_prior_kwargs_dict, do_permute=not_zs, bptt=bptt, steps_per_epoch=steps_per_epoch, is_wrapper=is_wrapper)
+
+        X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds = make_datasets(extra_prior_kwargs_dict,
+                                                                                                                                                    do_permute=not_zs,
+                                                                                                                                                    bptt=bptt,
+                                                                                                                                                    steps_per_epoch=steps_per_epoch,
+                                                                                                                                                    is_wrapper=is_wrapper,
+                                                                                                                                                    private_ds = private_data)
         old_bptt = bptt
         dl, val_dl, test_dl, bptt, data_for_fitting  = make_dataloaders(bptt=bptt, not_zs=not_zs)
         val_dl = get_subset_dl(extra_prior_kwargs_dict, val_dl)
@@ -490,6 +514,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                              y_encoder=y_encoder_generator(1, emsize), input_normalization=input_normalization,
                              pos_encoder=(pos_encoder_generator or positional_encodings.NoPositionalEncoding)(emsize, bptt*2),
                              decoder=decoder, init_method=initializer, efficient_eval_masking=efficient_eval_masking, prefix_size=prefix_size,
+                             n_classes=num_classes, prefix_label_probs=label_weights, num_features=extra_prior_kwargs_dict.get("num_features", 100),
+                             private=do_private, **model_extra_args
                              n_classes=num_classes, prefix_label_probs=label_weights, num_features=extra_prior_kwargs_dict.get("num_features", 100), linear=extra_prior_kwargs_dict.get("linear", False), **model_extra_args
                              )
     model.criterion = criterion    
@@ -507,6 +533,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             load_weights_from_this_state_dict['criterion.weight'] = model.state_dict()['criterion.weight']
         if load_weights_from_this_state_dict.get('prefix_embedding.weight', None) is None and model.state_dict().get('prefix_embedding.weight', None) is not None:
             load_weights_from_this_state_dict['prefix_embedding.weight'] = model.state_dict()['prefix_embedding.weight']
+        if do_private:
+            load_weights_from_this_state_dict = load_and_combine_attention_weights(load_weights_from_this_state_dict, nlayers)
         if load_weights_from_this_state_dict.get('encoder.weight', None) is not None:
             load_shape = load_weights_from_this_state_dict.get('encoder.weight', None).shape
             model_shape = model.state_dict().get('encoder.weight', None).shape
@@ -518,7 +546,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         model.load_state_dict(load_weights_from_this_state_dict)
     if initialize_with_model is not None:
         model.init_from_small_model(initialize_with_model)
-
     params_to_optimize = []
     if do_prompt_tuning:
         params_to_optimize.append("prefix_embedding")
@@ -531,7 +558,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         print("Params to optimize: ", params_to_optimize)
 
         print(f"Using a Transformer with {sum(p.numel() for p in model.parameters())/1000/1000:.{2}f} M parameters")
-
+    if do_prompt_tuning and do_private:
+        model.freeze_parameters_except_named(params_to_optimize)
     try:
         for (k, v), (k2, v2) in zip(model.state_dict().items(), initialize_with_model.state_dict().items()):
             print(k, ((v - v2) / v).abs().mean(), v.shape)
@@ -550,13 +578,42 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         lr = get_openai_lr(model)
         if verbose:
             print(f"Using OpenAI max lr of {lr}.")
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+
+    if do_prompt_tuning:
+        pto = (p for n, p in model.named_parameters() if any([x in n for x in params_to_optimize]))
+    else:
+        pto = model.parameters()
+
+    optimizer = torch.optim.AdamW(pto, lr=lr, weight_decay=weight_decay)
     sched_obj = scheduler(optimizer, warmup_epochs, epochs if epochs is not None else 100) # when training for fixed time lr schedule takes 100 steps
 
-    scaler = GradScaler() if train_mixed_precision else None
+    scaler = GradScaler() if (train_mixed_precision and not do_private) else None
 
     # check that everything uses up-to-date APIs
     utils.check_compatibility(dl)
+
+    if do_private:
+            eps = extra_prior_kwargs_dict.get('epsilon', 1.0)
+            delta = extra_prior_kwargs_dict.get('delta', 1e-5)
+            max_grad_norm = extra_prior_kwargs_dict.get('max_grad_norm', 1.0)
+            if verbose:
+                print("DP training with epsilon: ", eps, "delta: ", delta, "max_grad_norm: ", max_grad_norm)
+            errors = ModuleValidator.validate(model, strict=False)
+            if len(errors) > 0 and verbose:
+                print("Differentially private model architecture errors: ")
+                print(errors)
+            privacy_engine = PrivacyEngine()
+            y_emb = model.prefix_y_embedding.clone()
+            model, optimizer, dl = privacy_engine.make_private_with_epsilon(
+                module=model,
+                optimizer=optimizer,
+                data_loader=dl,
+                epochs=epochs,
+                target_epsilon=eps,
+                target_delta=delta,
+                max_grad_norm=max_grad_norm,
+            )
+            model.prefix_y_embedding = y_emb
 
     master_epoch_count = []
     
@@ -569,6 +626,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         single_eval_pos = len(td[0])
         softmax_temperature = softmax_temperature.to(device)
         # print("In real data eval, eval set size: ", len(val_dl.dataset))
+
         with torch.inference_mode():
             # correct = 0
             # total = len(val_dl.dataset)
@@ -576,7 +634,10 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             target_list = []
             output_list = []
             for batch, (data, targets, _) in enumerate(val_dl):
-                
+
+                if batch == 0 and verbose:
+                    print("Data sample (train features, train labels, val/test features, val/test labels): ", td[0][:10], "\n", td[1][:10], "\n" , data[0][:10], "\n", data[1][:10], "\n")
+
                 if extra_prior_kwargs_dict.get('debug', False):
                     # Extra safeguard against test set contamination, permute label order before passing into model
                     data_temp_idx = torch.randperm(data[1].nelement())
@@ -625,11 +686,30 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
 
         return results, outputs, targets
     
+    def train_epoch(e_model, e_optimizer, dl, boost_this_epoch=False, eval_model=None, bptt_search=False):
     def train_epoch(e_model, e_optimizer, boost_this_epoch=False, eval_model=None, bptt_search=False):
         tracker = GPULossTracker(device=device)
         if max_time > 0 and time.time() - start_time > max_time:
             print("Max time reached. Exiting")
             exit(0)
+        e_model.train()  # Turn on the train mode
+        # Confirm that the correct params are frozen and unfrozen
+        if do_prompt_tuning:
+            if not do_private:
+                e_model.freeze_parameters_except_named(params_to_optimize)
+            for n, p in e_model.named_parameters():
+                grad_reqd = False
+                for s in params_to_optimize:
+                    if s in n:
+                        grad_reqd = True
+                        break
+                assert p.requires_grad == grad_reqd, "Parameter {} does not have the correct grad requirement!".format(n)
+
+        total_loss = 0.
+        total_positional_losses = 0.
+        total_positional_losses_recorded = 0
+        nan_steps = 0
+        ignore_steps = 0
         epoch_start_time = time.time()
         time_to_get_batch = 0
         time_to_get_batches = 0
@@ -691,7 +771,6 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     elif isinstance(criterion, nn.CrossEntropyLoss):
                         losses = criterion(output.reshape(-1, n_out), targets.to(device).long().flatten())
                     elif do_kl_loss:
-                        #TODO: investigate shape mismatches
                         real_data_preds = eval_model.predict_proba(data[0])
                         if real_data_preds.shape[1] < output.shape[1]:
                             real_data_preds = np.concatenate([real_data_preds, np.zeros((real_data_preds.shape[0], output.shape[1] - real_data_preds.shape[1]))], axis=1)
@@ -745,12 +824,21 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 elif bptt_search:
                     pass
                 else:
-                    loss.backward()      
+                    loss.backward()
+                if do_private:
+                    for n, p in model.named_parameters():
+                        if p.requires_grad:
+                            if (not hasattr(p, "grad_sample") or p.grad_sample is None):
+                                p.grad_sample = p.grad.clone().unsqueeze(0)
+                    loss.backward()
                 backward_times += time.time() - before_backward
                 tracker.update(loss)
                 if batch % aggregate_k_gradients == aggregate_k_gradients - 1:
                     if scaler: scaler.unscale_(e_optimizer)
-                    torch.nn.utils.clip_grad_norm_(e_model.parameters(), 1.)
+                    if do_private:
+                        pass
+                    else:
+                        torch.nn.utils.clip_grad_norm_(e_model.parameters(), 1.)
                     try:
                         if scaler:
                             scaler.step(e_optimizer)
@@ -767,7 +855,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         #Total positional losses is a torch tensor of size bptt (batch size)
         if batches_seen < extra_prior_kwargs_dict.get('min_batches_per_epoch', 1):
             raise ValueError("Not enough batches seen in epoch: saw {} batches, expected at least {}".format(batches_seen, extra_prior_kwargs_dict.get('min_batches_per_epoch', 1)))
-        
+
         total_loss = tracker.average()
 
         if verbose:
@@ -832,7 +920,8 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
     
     def save_prefix_weights(model, path, i, do_concat, prefix_weights_l):
         # Save prefix weights
-        prefix_weights = model.state_dict()['prefix_embedding.weight'].cpu().numpy()
+        prefix_weights = model.prefix_embedding.weight.cpu().detach().numpy()
+        #prefix_weights = model.state_dict()['prefix_embedding.weight'].cpu().numpy()
         prefix_fn = f"prefix_weights_{i}.npy"
         prefix_save_path = os.path.join(path, prefix_fn)
         # if not is_wrapper:
@@ -953,6 +1042,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
         return_outputs = None
         return_targets = None
         res_dict = None
+        best_val_score = best_val_score_nc = -1.0
         best_val_score = best_val_score_nc = 0
         best_total_loss = 1e9
         if do_prompt_tuning:
@@ -970,6 +1060,19 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             boost_this_epoch = True if epoch == 1 else False
             epoch_start_time = time.time()
             master_epoch_count.append(1)
+            if do_private:
+                with BatchMemoryManager(
+                            data_loader=dl,
+                            max_physical_batch_size=batch_size,
+                            optimizer=optimizer
+                        ) as memory_safe_data_loader:
+                        total_loss, total_positional_losses, time_to_get_batch, forward_time, step_time, nan_share, ignore_share =\
+                        train_epoch(t_model, t_optim, memory_safe_data_loader, boost_this_epoch, eval_model=eval_model, bptt_search=False)
+            else:
+                total_loss, total_positional_losses, time_to_get_batch, forward_time, step_time, nan_share, ignore_share =\
+                    train_epoch(t_model, t_optim, dl, boost_this_epoch, eval_model=eval_model, bptt_search=False)
+            val_score = val_score_nc = val_score_concat = val_score_nc_concat = test_score = test_score_nc = test_ece = test_tace = val_ece = val_tace = val_ece_nc = val_tace_nc = test_ece_nc = test_tace_nc = None
+            ### todo: from main
             # Confirm that the correct params are frozen and unfrozen
             if do_prompt_tuning:
                 t_model.freeze_parameters_except_named(params_to_optimize)
@@ -983,9 +1086,16 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             total_loss, _, time_to_get_batch, forward_time, step_time, _, _ =\
                 train_epoch(t_model, t_optim, boost_this_epoch, eval_model=eval_model, bptt_search=False)
             val_score = val_score_nc = val_score_concat = val_score_nc_concat = test_score = test_score_nc = None
+            ####
             res_dict = dict()
             res_dict['epoch_train_time'] = np.round(time.time() - epoch_start_time, 3).item()
             res_dict['master_epoch_count'] = len(master_epoch_count)
+            if do_private:
+                epsilon = privacy_engine.get_epsilon(extra_prior_kwargs_dict.get('delta', 1e-5))
+                if verbose:
+                    print("DP Epsilon is now: ", epsilon)
+                res_dict['epsilon_budget'] = epsilon
+            # LONG_VAL_EP = ((epoch - 1) % validation_period == 0)
             if real_prior:
                 val_start_time = time.time()
                 val_results, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=real_data_qty, train_data=data_for_fitting, val_dl=val_dl)
@@ -1013,10 +1123,10 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                     return_outputs.append(val_outputs)
                     return_targets.append(val_targets)
                     res_dict = dict(res_dict, **{"Val_nc_" + k : v for k, v in val_score_nc.items()})
-                
+
                 #Early stopping logic
                 score_condition = (round(total_loss, 2) < round(best_total_loss, 2))
-                
+
                 if score_condition:
                     patience = 0
                     best_total_loss = total_loss
@@ -1087,7 +1197,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
             # stepping with wallclock time based scheduler
             t_sched.step()
 
-        if do_prompt_tuning and not do_kl_loss and isinstance(best_val_embed, torch.Tensor):
+        if do_prompt_tuning and not do_kl_loss and not do_private and isinstance(best_val_embed, torch.Tensor):
             t_model.prefix_embedding.weight = nn.Parameter(best_val_embed.to(device))
             #set requires grad to true
             t_model.prefix_embedding.weight.requires_grad = True
@@ -1235,7 +1345,7 @@ def train(args, dataset, criterion, encoder_generator, emsize=200, nhid=200, nla
                 extra_prior_kwargs_dict['do_impute'] = np.random.choice([True, False])
                 extra_prior_kwargs_dict['ohe'] = np.random.choice([True, False])
                 extra_prior_kwargs_dict['preprocess_type'] = np.random.choice(['none', 'power_all', 'robust_all', 'quantile_all'])
-                X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds = make_datasets(extra_prior_kwargs_dict, do_permute=not_zs, bptt=bptt, steps_per_epoch=steps_per_epoch, is_wrapper=is_wrapper)
+                X, y, X_val, y_val, X_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights, train_ds, val_ds, test_ds = make_datasets(extra_prior_kwargs_dict, do_permute=not_zs, bptt=bptt, steps_per_epoch=steps_per_epoch, is_wrapper=is_wrapper, do_private=private_data)
                 old_bptt = bptt
                 dl, val_dl, test_dl, bptt, data_for_fitting  = make_dataloaders(bptt=bptt)
                 if old_bptt != bptt:

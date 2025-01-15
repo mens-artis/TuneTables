@@ -423,43 +423,43 @@ def get_model(config, device, should_train=True, verbose=False, state_dict=None,
         sep_samp = get_uniform_single_eval_pos_sampler(config.get('max_eval_pos', config['bptt']), min_len=config.get('min_eval_pos', 0))
         
     model, results_dict, data_for_fitting, test_loader = train(args
-                  , dataloader
-                  , loss
-                  , encoder
-                  , style_encoder_generator = encoders.StyleEncoder if use_style else None
-                  , emsize=config['emsize']
-                  , nhead=config['nhead']
-                  # For unsupervised learning change to NanHandlingEncoder
-                  , y_encoder_generator= encoders.get_Canonical(config['max_num_classes']) if config.get('canonical_y_encoder', False) else encoders.Linear
-                  , pos_encoder_generator=None
-                  , batch_size=config['batch_size']
-                  , nlayers=config['nlayers']
-                  , nhid=config['emsize'] * config['nhid_factor']
-                  , epochs=epochs
-                  , warmup_epochs=config['warmup_epochs']
-                  , bptt=config['bptt']
-                  , gpu_device=device
-                  , dropout=config['dropout']
-                  , steps_per_epoch=config['num_steps']
-                  , single_eval_pos_gen=sep_samp
-                  , load_weights_from_this_state_dict=state_dict
-                  , validation_period=config['validation_period']
-                  , aggregate_k_gradients=config['aggregate_k_gradients']
-                  , recompute_attn=config['recompute_attn']
-                  , epoch_callback=epoch_callback
-                  , bptt_extra_samples = config['bptt_extra_samples']
-                  , extra_prior_kwargs_dict=epkd
-                  , lr=config['lr']
-                  , verbose=config['verbose']
-                  , boosting = config['boosting']
-                  , boosting_lr = config.get('boosting_lr', 1e-3)
-                  , boosting_n_iters = config.get('boosting_n_iters', 10)
-                  , rand_init_ensemble = config.get('rand_init_ensemble', False)
-                  , do_concat = config.get('concat_method', '')
-                  , weight_decay=config.get('weight_decay', 0.0)
-                  , is_wrapper = is_wrapper
-                  , x_wrapper = x_wrapper, 
-                  y_wrapper = y_wrapper)
+                                                               , dataloader
+                                                               , loss
+                                                               , encoder
+                                                               , style_encoder_generator = encoders.StyleEncoder if use_style else None
+                                                               , emsize=config['emsize']
+                                                               , nhead=config['nhead']
+                                                               # For unsupervised learning change to NanHandlingEncoder
+                                                               , _y_encoder_generator= encoders.get_Canonical(config['max_num_classes']) if config.get('canonical_y_encoder', False) else encoders.Linear
+                                                               , _pos_encoder_generator=None
+                                                               , batch_size=config['batch_size']
+                                                               , nlayers=config['nlayers']
+                                                               , nhid=config['emsize'] * config['nhid_factor']
+                                                               , epochs=epochs
+                                                               , warmup_epochs=config['warmup_epochs']
+                                                               , bptt=config['bptt']
+                                                               , gpu_device=device
+                                                               , dropout=config['dropout']
+                                                               , steps_per_epoch=config['num_steps']
+                                                               , single_eval_pos_gen=sep_samp
+                                                               , load_weights_from_this_state_dict=state_dict
+                                                               , validation_period=config['validation_period']
+                                                               , aggregate_k_gradients=config['aggregate_k_gradients']
+                                                               , recompute_attn=config['recompute_attn']
+                                                               , epoch_callback=epoch_callback
+                                                               , bptt_extra_samples = config['bptt_extra_samples']
+                                                               , extra_prior_kwargs_dict=epkd
+                                                               , lr=config['lr']
+                                                               , verbose=config['verbose']
+                                                               , boosting = config['boosting']
+                                                               , boosting_lr = config.get('boosting_lr', 1e-3)
+                                                               , boosting_n_iters = config.get('boosting_n_iters', 10)
+                                                               , rand_init_ensemble = config.get('rand_init_ensemble', False)
+                                                               , do_concat = config.get('concat_method', '')
+                                                               , weight_decay=config.get('weight_decay', 0.0)
+                                                               , is_wrapper = is_wrapper
+                                                               , x_wrapper = x_wrapper,
+                                                               y_wrapper = y_wrapper)
 
     return model, results_dict, data_for_fitting, test_loader
 

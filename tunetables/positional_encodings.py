@@ -38,7 +38,7 @@ class LearnedPositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super(LearnedPositionalEncoding, self).__init__()
         self.max_seq_len = max_len
-        #self.positional_embeddings = nn.Embedding(max_len, d_model)
+        # self.positional_embeddings = nn.Embedding(max_len, d_model)
         self.positional_embeddings = nn.Parameter(torch.empty(max_len, d_model))
         nn.init.normal_(self.positional_embeddings, mean=0, std=d_model ** -0.5)
 
@@ -60,11 +60,3 @@ class PairedScrambledPositionalEncodings(LearnedPositionalEncoding):
         pos_emb = paired_embs[torch.randperm(len(paired_embs))].view(*self.positional_embeddings.shape)[:seq_len]
 
         return pos_emb.unsqueeze(1).expand(seq_len, bs, d_model) + x #* math.sqrt(x.shape[-1])
-
-
-
-
-
-
-
-

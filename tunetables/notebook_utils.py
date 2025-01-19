@@ -5,6 +5,7 @@ import pickle
 
 import torch
 
+
 def print_models(base_path, model_string):
     print(model_string)
 
@@ -14,6 +15,7 @@ def print_models(base_path, model_string):
             if exists:
                 print(os.path.join(base_path, f'models_diff/prior_diff_real_checkpoint{model_string}_n_{i}_epoch_{e}.cpkt'))
         print()
+
 
 class CustomUnpickler(pickle.Unpickler):
     def find_class(self, module, name):

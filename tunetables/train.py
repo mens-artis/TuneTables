@@ -38,7 +38,7 @@ from tunetables.utils import (get_cosine_schedule_with_warmup, get_openai_lr, St
                               get_weighted_single_eval_pos_sampler, get_uniform_single_eval_pos_sampler,
                               load_and_combine_attention_weights)
 import tunetables.priors as priors
-from tunetables.priors.real import (SummarizeAfter, process_data, loop_translate, TabDS, preprocess_input,
+from tunetables.priors.real import (summarize_after, process_data, loop_translate, TabDS, preprocess_input,
                                     get_train_dataloader, get_shuffle_index, get_subset_dl)
 from tunetables.losses import kl_divergence
 import tunetables.encoders as encoders
@@ -147,7 +147,7 @@ def real_data_eval_out(r_model, cl=1000, train_data=None, val_dl=None,
 def train(train_args, dataset, training_criterion, _encoder_generator, emsize=200, nhid=200, nlayers=6, nhead=2,
           dropout=0.0, epochs=10, steps_per_epoch=100, batch_size=200, bptt=10, lr=None, weight_decay=0.0,
           warmup_epochs=10, input_normalization=False,
-          _y_encoder_generator=None, _pos_encoder_generator=None, decoder=None, extra_prior_kwargs_dict={},
+          _y_encoder_generator=None, _pos_encoder_generator=None, decoder=None, extra_prior_kwargs_dict=None,
           scheduler=get_cosine_schedule_with_warmup,
           load_weights_from_this_state_dict=None, validation_period=10, single_eval_pos_gen=None,
           bptt_extra_samples=None, gpu_device='cuda:0',
@@ -158,6 +158,8 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
           **model_extra_args
           ):
     # ulimit error fix
+    if extra_prior_kwargs_dict is None:
+        extra_prior_kwargs_dict = {}
     torch.multiprocessing.set_sharing_strategy('file_system')
     # fork warning fix
     torch.multiprocessing.set_start_method('spawn')
@@ -185,6 +187,7 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
     max_time = extra_prior_kwargs_dict.get('max_time', 0)
     do_kl_loss = extra_prior_kwargs_dict.get('kl_loss', False)
     do_private = extra_prior_kwargs_dict.get('private_model', False)
+    private_data = False
     if extra_prior_kwargs_dict.get('private_data', False):
         private_data = True
         do_private = False
@@ -349,7 +352,7 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
             _x_test = preprocess_input(torch.from_numpy(_x_test.copy().astype(np.float32)), preprocess_type,
                                        summerize_after_prep, train_args, is_train=False)
             if train_args.summerize_after_prep:
-                _x, _x_val, _x_test = SummarizeAfter(_x, _x_val, _x_test, _y, _y_val, _y_test, num_features, train_args)
+                _x, _x_val, _x_test = summarize_after(_x, _x_val, _x_test, _y, _y_val, _y_test, num_features, train_args)
         else:
             _x = torch.from_numpy(_x.copy().astype(np.float32))
             _x_val = torch.from_numpy(_x_val.copy().astype(np.float32))
@@ -372,13 +375,13 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
         _val_ds = TabDS(_x_val, _y_val)
         _test_ds = TabDS(_x_test, _y_test)
 
-        return (_x, _y, _x_val, _y_val, _x_test, _y_test, invert_perm_map,
+        return (_x, _y, _x_val, _y_val, _x_test, _y_test, _invert_perm_map,
                 _steps_per_epoch, num_classes, _label_weights, _train_ds, _val_ds, _test_ds)
 
     def make_dataloaders(_bptt=bptt, _not_zs=True):
 
         _dl, _bptt = get_train_dataloader(train_ds, bptt=_bptt, shuffle=False, num_workers=n_workers, drop_last=True,
-                                          agg_k_grads=aggregate_k_gradients, not_zs=_not_zs)
+                                          agg_k_grads=aggregate_k_gradients, not_zero_shot=_not_zs)
 
         _val_dl = DataLoader(
             val_ds, batch_size=min(_bptt, y_val.shape[0] // 2), shuffle=False, num_workers=n_workers,
@@ -418,11 +421,11 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
         (x, y, x_val, y_val, x_test, y_test, invert_perm_map, steps_per_epoch,
          num_classes, label_weights, train_ds, val_ds, test_ds) = make_datasets(extra_prior_kwargs_dict,
                                                                                 do_permute=not_zs, _bptt=bptt,
-                                                                                steps_per_epoch=steps_per_epoch,
+                                                                                _steps_per_epoch=steps_per_epoch,
                                                                                 is_wrapper=is_wrapper,
                                                                                 private_ds=private_data)
         old_bptt = bptt
-        dl, val_dl, test_dl, bptt, data_for_fitting = make_dataloaders(_bptt=bptt, not_zs=not_zs)
+        dl, val_dl, test_dl, bptt, data_for_fitting = make_dataloaders(_bptt=bptt, _not_zs=not_zs)
         val_dl = get_subset_dl(extra_prior_kwargs_dict, val_dl)
         if epochs == 0:
             return None, None, None, test_dl
@@ -507,10 +510,10 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
                 return results
 
             # res_dict = dict()
-            val_results = tpc_data_eval(_cl=real_data_qty, _x=data_for_fitting[0], y=data_for_fitting[1], x_val=x_val,
+            val_results = tpc_data_eval(_cl=real_data_qty, _x=data_for_fitting[0], _y=data_for_fitting[1], x_val=x_val,
                                         y_val=y_val, ens_size=extra_prior_kwargs_dict.get('zs_eval_ensemble', 0))
             zs_res_dict = dict(zs_res_dict, **{"Val_" + k: v for k, v in val_results.items()})
-            test_results = tpc_data_eval(_cl=real_data_qty, _x=data_for_fitting[0], y=data_for_fitting[1], x_val=x_test,
+            test_results = tpc_data_eval(_cl=real_data_qty, _x=data_for_fitting[0], _y=data_for_fitting[1], x_val=x_test,
                                          y_val=y_test, ens_size=extra_prior_kwargs_dict.get('zs_eval_ensemble', 0))
             zs_res_dict = dict(zs_res_dict, **{"Test_" + k: v for k, v in test_results.items()})
             with open(os.path.join(extra_prior_kwargs_dict.get('save_path'), 'zs_eval_ensemble.json'), 'w') as f:
@@ -547,7 +550,7 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
                              prefix_size=prefix_size,
                              n_classes=num_classes, prefix_label_probs=label_weights,
                              num_features=extra_prior_kwargs_dict.get("num_features", 100),
-                             private=do_private, linear=extra_prior_kwargs_dict.get("linear", False),
+                             private=do_private, b_linear=extra_prior_kwargs_dict.get("linear", False),
                              **model_extra_args,
                              )
     model.criterion = training_criterion
@@ -594,11 +597,13 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
         print(f"Using a Transformer with {sum(p.numel() for p in model.parameters()) / 1000 / 1000:.{2}f} M parameters")
     if do_prompt_tuning and do_private:
         model.freeze_parameters_except_named(params_to_optimize)
-    try:
-        for (k, v), (k2, v2) in zip(model.state_dict().items(), initialize_with_model.state_dict().items()):
-            print(k, ((v - v2) / v).abs().mean(), v.shape)
-    except ValueError:
-        pass
+    if initialize_with_model:
+        if hasattr(initialize_with_model,'state_dict'):
+            try:
+                for (k, v), (k2, v2) in zip(model.state_dict().items(), initialize_with_model.state_dict().items()):
+                    print(k, ((v - v2) / v).abs().mean(), v.shape)
+            except ValueError:
+                pass
 
     model.to(device)
     if using_dist:
@@ -1185,7 +1190,7 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
             if real_prior:
                 val_start_time = time.time()
                 _val_results, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=real_data_qty,
-                                                                        train_data=data_for_fitting, val_dl=_val_dl)
+                                                                        train_data=data_for_fitting, real_data_val_dl=_val_dl)
                 _res_dict = dict(_res_dict, **{"Val_" + k: v for k, v in _val_results.items()})
                 val_score = _res_dict["Val_Accuracy"]
                 return_outputs = [val_outputs]
@@ -1196,10 +1201,10 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
                         ec = EmbeddingConcatenator(t_model, do_concat, prefix_weights_l)
                         t_model = concat_embedding(ec, t_model, do_concat)
                         val_score_concat, _, _ = real_data_eval(r_model=ec.get_model(), cl=real_data_qty,
-                                                                train_data=data_for_fitting, val_dl=_val_dl)
+                                                                train_data=data_for_fitting, real_data_val_dl=_val_dl)
                         _res_dict = dict(_res_dict, **{"Val_concat_" + k: v for k, v in val_score_concat.items()})
                         val_score_nc_concat, _, _ = real_data_eval(r_model=ec.get_model(), cl=0,
-                                                                   train_data=data_for_fitting, val_dl=_val_dl)
+                                                                   train_data=data_for_fitting, real_data_val_dl=_val_dl)
                         _res_dict = dict(_res_dict, **{"Val_concat_nc_" + k: v for k, v in val_score_nc_concat.items()})
                         t_model = restore_embedding(ec, t_model)
                         # Update optimizer parameters to include new embedding
@@ -1209,7 +1214,7 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
                         val_score_nc_concat = ""
                         val_score_concat = ""
                     val_score_nc, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=0,
-                                                                            train_data=data_for_fitting, val_dl=_val_dl)
+                                                                            train_data=data_for_fitting, real_data_val_dl=_val_dl)
                     return_outputs.append(val_outputs)
                     return_targets.append(val_targets)
                     _res_dict = dict(_res_dict, **{"Val_nc_" + k: v for k, v in val_score_nc.items()})
@@ -1235,14 +1240,14 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
             no_patience = (patience > extra_prior_kwargs_dict.get('early_stopping_patience', 2))
             if is_best or (no_patience and "Test_Accuracy" not in _res_dict):
                 _test_results, test_outputs, _test_targets = real_data_eval(r_model=t_model, cl=real_data_qty,
-                                                                            train_data=data_for_fitting, val_dl=_test_dl)
+                                                                            train_data=data_for_fitting, real_data_val_dl=_test_dl)
                 _res_dict = dict(_res_dict, **{"Test_" + k: v for k, v in _test_results.items()})
                 return_outputs = return_outputs[:1] + [test_outputs] + return_outputs[1:]
                 return_targets = return_targets[:1] + [_test_targets] + return_targets[1:]
                 if do_prompt_tuning:
                     test_score_nc, test_outputs, _test_targets = real_data_eval(r_model=t_model, cl=0,
                                                                                 train_data=data_for_fitting,
-                                                                                val_dl=_test_dl)
+                                                                                real_data_val_dl=_test_dl)
                     _res_dict = dict(_res_dict, **{"Test_nc_" + k: v for k, v in test_score_nc.items()})
                     return_outputs.append(test_outputs)
                     return_targets.append(_test_targets)
@@ -1301,7 +1306,7 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
             t_optim = torch.optim.AdamW(t_model.parameters(), lr=lr, weight_decay=weight_decay)
             t_sched = scheduler(t_optim, warmup_epochs, epochs if epochs is not None else 100)
             v_scr, val_outputs, val_targets = real_data_eval(r_model=t_model, cl=real_data_qty,
-                                                             train_data=data_for_fitting, val_dl=_val_dl)
+                                                             train_data=data_for_fitting, real_data_val_dl=_val_dl)
             if (v_scr['Accuracy'] != best_res_dict['Val_Accuracy']) and verbose:
                 print("WARNING: Best embedding score {} does not match best score {}!".format(v_scr, best_res_dict[
                     'Val_Accuracy']))
@@ -1457,7 +1462,7 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
                     ['none', 'power_all', 'robust_all', 'quantile_all'])
                 (x, y, x_val, y_val, x_test, y_test, invert_perm_map, steps_per_epoch, num_classes, label_weights,
                  train_ds, val_ds, test_ds) = make_datasets(
-                    extra_prior_kwargs_dict, do_permute=not_zs, _bptt=bptt, steps_per_epoch=steps_per_epoch,
+                    extra_prior_kwargs_dict, do_permute=not_zs, _bptt=bptt, _steps_per_epoch=steps_per_epoch,
                     is_wrapper=is_wrapper, do_private=private_data)
                 old_bptt = bptt
                 dl, val_dl, test_dl, bptt, data_for_fitting = make_dataloaders(_bptt=bptt)

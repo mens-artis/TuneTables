@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap
+# from matplotlib.colors import ListedColormap
 
 from functools import reduce
 
@@ -146,7 +146,7 @@ class DecisionBoundaryDisplay:
     def from_estimator(
         cls,
         estimator,
-        X,
+        x,
         *,
         grid_resolution=100,
         eps=1.0,
@@ -170,7 +170,7 @@ class DecisionBoundaryDisplay:
             Higher values will make the plot look nicer but be slower to
             render.
         eps : float, default=1.0
-            Extends the minimum and maximum values of X for evaluating the
+            Extends the minimum and maximum values of x for evaluating the
             response function.
         plot_method : {'contourf', 'contour', 'pcolormesh'}, default='contourf'
             Plotting method to call when plotting the response. Please refer
@@ -188,11 +188,11 @@ class DecisionBoundaryDisplay:
             `response_method="auto"`.
         xlabel : str, default=None
             The label used for the x-axis. If `None`, an attempt is made to
-            extract a label from `X` if it is a dataframe, otherwise an empty
+            extract a label from `x` if it is a dataframe, otherwise an empty
             string is used.
         ylabel : str, default=None
             The label used for the y-axis. If `None`, an attempt is made to
-            extract a label from `X` if it is a dataframe, otherwise an empty
+            extract a label from `x` if it is a dataframe, otherwise an empty
             string is used.
         ax : Matplotlib axes, default=None
             Axes object to plot on. If `None`, a new figure and axes is
@@ -218,14 +218,14 @@ class DecisionBoundaryDisplay:
         >>> from sklearn.linear_model import LogisticRegression
         >>> from sklearn.inspection import DecisionBoundaryDisplay
         >>> iris = load_iris()
-        >>> X = iris.data[:, :2]
-        >>> classifier = LogisticRegression().fit(X, iris.target)
+        >>> x = iris.data[:, :2]
+        >>> classifier = LogisticRegression().fit(x, iris.target)
         >>> disp = DecisionBoundaryDisplay.from_estimator(
-        ...     classifier, X, response_method="predict",
+        ...     classifier, x, response_method="predict",
         ...     xlabel=iris.feature_names[0], ylabel=iris.feature_names[1],
         ...     alpha=0.5,
         ... )
-        >>> disp.ax_.scatter(X[:, 0], X[:, 1], c=iris.target, edgecolor="k")
+        >>> disp.ax_.scatter(x[:, 0], x[:, 1], c=iris.target, edgecolor="k")
         <...>
         >>> plt.show()
         """
@@ -251,7 +251,7 @@ class DecisionBoundaryDisplay:
                 f"Got {plot_method} instead."
             )
 
-        x0, x1 = _safe_indexing(X, 0, axis=1), _safe_indexing(X, 1, axis=1)
+        x0, x1 = _safe_indexing(x, 0, axis=1), _safe_indexing(x, 1, axis=1)
 
         x0_min, x0_max = x0.min() - eps, x0.max() + eps
         x1_min, x1_max = x1.min() - eps, x1.max() + eps
@@ -260,16 +260,16 @@ class DecisionBoundaryDisplay:
             np.linspace(x0_min, x0_max, grid_resolution),
             np.linspace(x1_min, x1_max, grid_resolution),
         )
-        if hasattr(X, "iloc"):
+        if hasattr(x, "iloc"):
             # we need to preserve the feature names and therefore get an empty dataframe
-            X_grid = X.iloc[[], :].copy()
-            X_grid.iloc[:, 0] = xx0.ravel()
-            X_grid.iloc[:, 1] = xx1.ravel()
+            x_grid = x.iloc[[], :].copy()
+            x_grid.iloc[:, 0] = xx0.ravel()
+            x_grid.iloc[:, 1] = xx1.ravel()
         else:
-            X_grid = np.c_[xx0.ravel(), xx1.ravel()]
+            x_grid = np.c_[xx0.ravel(), xx1.ravel()]
 
         pred_func = _check_boundary_response_method(estimator, response_method)
-        response = pred_func(X_grid)
+        response = pred_func(x_grid)
 
         # convert classes predictions into integers
         if pred_func.__name__ == "predict" and hasattr(estimator, "classes_"):
@@ -285,10 +285,10 @@ class DecisionBoundaryDisplay:
             response = response[:, 1]
 
         if xlabel is None:
-            xlabel = X.columns[0] if hasattr(X, "columns") else ""
+            xlabel = x.columns[0] if hasattr(x, "columns") else ""
 
         if ylabel is None:
-            ylabel = X.columns[1] if hasattr(X, "columns") else ""
+            ylabel = x.columns[1] if hasattr(x, "columns") else ""
 
         display = DecisionBoundaryDisplay(
             xx0=xx0,

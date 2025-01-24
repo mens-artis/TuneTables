@@ -57,7 +57,7 @@ def train_function(config_sample, i=0, add_name='', is_wrapper=False, x_wrapper=
         return results_dict
 
 
-def set_compatibility_params(config, args):
+def set_compatibility_params(config, args_parsed_from_cmdline):
     """
     The parameters listed here either are known to have no effect when using real data priors, or we don't know whether
     they have an effect.
@@ -69,15 +69,15 @@ def set_compatibility_params(config, args):
     # config["max_samples"] = 10000 if config["large_datasets"] else 5000
     # config["suite"]='cc'
 
-    # Value set to true in the script; seems to have no effect on zs accuracy
+    # Value set to true in the script; seems to have no effect on zero-shot accuracy
     config['recompute_attn'] = True
 
     # parameters related to synthetic priors
-    if args.prior_type == 'prior_bag':
+    if args_parsed_from_cmdline.prior_type == 'prior_bag':
         config['prior_type'], config['differentiable'], config['flexible'] = 'prior_bag', True, True
     else:
         # TODO: check this
-        config['prior_type'], config['differentiable'], config['flexible'] = args.prior_type, True, False
+        config['prior_type'], config['differentiable'], config['flexible'] = args_parsed_from_cmdline.prior_type, True, False
     config['output_multiclass_ordered_p'] = 0.
     try:
         del config['differentiable_hyperparameters']['output_multiclass_ordered_p']
@@ -116,13 +116,14 @@ def set_compatibility_params(config, args):
     # Can't find where in the code where this is used -- would be useful if it worked
     config['total_available_time_in_s'] = None  # 60*60*22 # 22 hours for some safety...
 
-    # Seems to have no effect on ZS accuracy
+    # Seems to have no effect on not_zero_shot accuracy
     config['efficient_eval_masking'] = True
 
     return config
 
 
-def reload_config(config_type='causal', task_type='multiclass', longer=0, args=None):
+def reload_config(config_type='causal', task_type='multiclass', longer=0,
+                  args_parsed_from_cmdline=None):
     if config_type == 'real':
         config = {
             "dropout": 0.0,
@@ -132,7 +133,7 @@ def reload_config(config_type='causal', task_type='multiclass', longer=0, args=N
             "nhead": 4,
             "nhid_factor": 2,
             "eval_positions": None,
-            "seq_len_used": args.bptt,
+            "seq_len_used": args_parsed_from_cmdline.bptt,
             "sampling": 'normal',
             "mix_activations": False,
             "pre_sample_causes": True,
@@ -142,100 +143,101 @@ def reload_config(config_type='causal', task_type='multiclass', longer=0, args=N
         config = get_prior_config(config_type=config_type)
 
     # hard-coded limits of original TabPFN model
-    config['max_num_classes'] = args.max_num_classes
+    config['max_num_classes'] = args_parsed_from_cmdline.max_num_classes
     config["max_features"] = 100
 
     # prompt tuning
-    config['prompt_tuning'] = args.prompt_tuning
-    config['tuned_prompt_size'] = args.tuned_prompt_size
-    config['tuned_prompt_label_balance'] = args.tuned_prompt_label_balance
+    config['prompt_tuning'] = args_parsed_from_cmdline.prompt_tuning
+    config['tuned_prompt_size'] = args_parsed_from_cmdline.tuned_prompt_size
+    config['tuned_prompt_label_balance'] = args_parsed_from_cmdline.tuned_prompt_label_balance
 
     # eval fit samples and min batches per epoch
-    config['num_eval_fitting_samples'] = args.num_eval_fitting_samples
-    config['min_batches_per_epoch'] = args.min_batches_per_epoch
+    config['num_eval_fitting_samples'] = args_parsed_from_cmdline.num_eval_fitting_samples
+    config['min_batches_per_epoch'] = args_parsed_from_cmdline.min_batches_per_epoch
 
-    # zs eval parameters
-    config['zs_eval_ensemble'] = args.zs_eval_ensemble
+    # zero-shot eval parameters
+    config['zs_eval_ensemble'] = args_parsed_from_cmdline.zs_eval_ensemble
     config['random_feature_rotation'] = True if config['zs_eval_ensemble'] > 0 else False
     config['rotate_normalized_labels'] = True if config['zs_eval_ensemble'] > 0 else False
 
     # core parameters
-    config['lr'] = args.lr
-    config['early_stopping_patience'] = args.early_stopping
-    config['rand_seed'] = args.seed
+    config['lr'] = args_parsed_from_cmdline.lr
+    config['early_stopping_patience'] = args_parsed_from_cmdline.early_stopping
+    config['rand_seed'] = args_parsed_from_cmdline.seed
     config['emsize'] = 512
     config['nhead'] = config['emsize'] // 128
-    config['max_eval_pos'] = config['bptt'] = args.bptt
-    config['batch_size'] = args.batch_size
-    config['bptt_search'] = args.bptt_search
-    config['aggregate_k_gradients'] = args.aggregate_k_gradients
-    config['epochs'] = args.epochs
-    config['warmup_epochs'] = args.epochs // 10
-    if args.real_data_qty > 0:
-        config['real_data_qty'] = args.real_data_qty
+    config['max_eval_pos'] = config['bptt'] = args_parsed_from_cmdline.bptt
+    config['batch_size'] = args_parsed_from_cmdline.batch_size
+    config['bptt_search'] = args_parsed_from_cmdline.bptt_search
+    config['aggregate_k_gradients'] = args_parsed_from_cmdline.aggregate_k_gradients
+    config['epochs'] = args_parsed_from_cmdline.epochs
+    config['warmup_epochs'] = args_parsed_from_cmdline.epochs // 10
+    if args_parsed_from_cmdline.real_data_qty > 0:
+        config['real_data_qty'] = args_parsed_from_cmdline.real_data_qty
 
     # data preprocessing
-    config['do_preprocess'] = args.do_preprocess
-    config['preprocess_type'] = args.preprocess_type
+    config['do_preprocess'] = args_parsed_from_cmdline.do_preprocess
+    config['preprocess_type'] = args_parsed_from_cmdline.preprocess_type
     config['normalize_with_sqrt'] = False
-    config['split'] = args.split
-    config['pad_features'] = args.pad_features
-    config['reseed_data'] = args.reseed_data
+    config['split'] = args_parsed_from_cmdline.split
+    config['pad_features'] = args_parsed_from_cmdline.pad_features
+    config['reseed_data'] = args_parsed_from_cmdline.reseed_data
     config['normalize_to_ranking'] = False  # This should be kept to false, it has learning from the future issues
-    config['workers'] = args.workers
+    config['workers'] = args_parsed_from_cmdline.workers
 
     # differential privacy
-    config['private_model'] = args.private_model
-    config['private_data'] = args.private_data
-    config['private_val'] = args.private_val_data
-    config['epsilon'], config['delta'], config['gradnorm'] = float(args.edg[0]), float(args.edg[1]), float(args.edg[2])
+    config['private_model'] = args_parsed_from_cmdline.private_model
+    config['private_data'] = args_parsed_from_cmdline.private_data
+    config['private_val'] = args_parsed_from_cmdline.private_val_data
 
+    config['epsilon'], config['delta'], config['gradnorm'] = float(args_parsed_from_cmdline.edg[0]), float(args_parsed_from_cmdline.edg[1]), float(args_parsed_from_cmdline.edg[2])
+    # config['epsilon'], config['delta'], config['gradnorm'] = float("50"), float("1e-4"), float("1.2")
     # meta-parameters
-    config['validation_period'] = args.validation_period
-    config['val_subset_size'] = args.val_subset_size
-    config['verbose'] = args.verbose
-    config['save_every_k_epochs'] = args.save_every_k_epochs
-    config['max_time'] = args.max_time
-    config['shuffle_every_epoch'] = args.shuffle_every_epoch
-    config['topk_key'] = args.topk_key
-    config['optuna_objective'] = args.optuna_objective
+    config['validation_period'] = args_parsed_from_cmdline.validation_period
+    config['val_subset_size'] = args_parsed_from_cmdline.val_subset_size
+    config['verbose'] = args_parsed_from_cmdline.verbose
+    config['save_every_k_epochs'] = args_parsed_from_cmdline.save_every_k_epochs
+    config['max_time'] = args_parsed_from_cmdline.max_time
+    config['shuffle_every_epoch'] = args_parsed_from_cmdline.shuffle_every_epoch
+    config['topk_key'] = args_parsed_from_cmdline.topk_key
+    config['optuna_objective'] = args_parsed_from_cmdline.optuna_objective
 
     # concatenation
-    config['concat_method'] = args.concat_method
+    config['concat_method'] = args_parsed_from_cmdline.concat_method
 
     # amp, cuda, paths
     config["device"] = 'cuda'
-    config['data_path'] = args.data_path
-    config["base_path"] = args.save_path
+    config['data_path'] = args_parsed_from_cmdline.data_path
+    config["base_path"] = args_parsed_from_cmdline.save_path
     config['train_mixed_precision'] = True
-    config['linear'] = args.linear
+    config['linear'] = args_parsed_from_cmdline.linear
 
-    if args.resume is not None:
-        model_state, optimizer_state_load, config_sample_load = torch.load(args.resume, map_location='cpu')
+    if args_parsed_from_cmdline.resume is not None:
+        model_state, optimizer_state_load, config_sample_load = torch.load(args_parsed_from_cmdline.resume, map_location='cpu')
         module_prefix = 'module.'
         config["state_dict"] = {k.replace(module_prefix, ''): v for k, v in model_state.items()}
     else:
         config["state_dict"] = None
 
     # Boosting parameters
-    config['boosting'] = args.boosting
-    config['boosting_lr'] = args.ensemble_lr
-    config['boosting_n_iters'] = args.ensemble_size
+    config['boosting'] = args_parsed_from_cmdline.boosting
+    config['boosting_lr'] = args_parsed_from_cmdline.ensemble_lr
+    config['boosting_n_iters'] = args_parsed_from_cmdline.ensemble_size
     if config['boosting']:
         config['min_eval_pos'] = config['max_eval_pos'] = config['bptt'] = 1024
         config['aggregate_k_gradients'] = 1
 
     # Ensembling parameters
-    config['rand_init_ensemble'] = args.rand_init_ensemble
-    config['average_ensemble'] = args.average_ensemble
-    config['permute_feature_position_in_ensemble'] = args.permute_feature_position_in_ensemble
-    config['keep_topk_ensemble'] = args.keep_topk_ensemble
+    config['rand_init_ensemble'] = args_parsed_from_cmdline.rand_init_ensemble
+    config['average_ensemble'] = args_parsed_from_cmdline.average_ensemble
+    config['permute_feature_position_in_ensemble'] = args_parsed_from_cmdline.permute_feature_position_in_ensemble
+    config['keep_topk_ensemble'] = args_parsed_from_cmdline.keep_topk_ensemble
 
     # Bagging parameters
-    config['bagging'] = args.bagging
+    config['bagging'] = args_parsed_from_cmdline.bagging
 
     # BPTT and batch size
-    config['uniform_bptt'] = args.uniform_bptt
+    config['uniform_bptt'] = args_parsed_from_cmdline.uniform_bptt
     if config['uniform_bptt']:
         assert config['bptt'] % config[
             'batch_size'] == 0, "bptt should be divisible by batch size when using uniform bptt"
@@ -253,32 +255,32 @@ def reload_config(config_type='causal', task_type='multiclass', longer=0, args=N
         config['bptt_extra_samples'] = None
 
     # Feature subset selection
-    config['subset_features'] = args.subset_features
-    if args.bagging:
+    config['subset_features'] = args_parsed_from_cmdline.subset_features
+    if args_parsed_from_cmdline.bagging:
         config['subset_rows'] = 0
-        config['subset_rows_bagging'] = args.subsampling
+        config['subset_rows_bagging'] = args_parsed_from_cmdline.subsampling
     else:
-        config['subset_rows'] = args.subsampling
+        config['subset_rows'] = args_parsed_from_cmdline.subsampling
         config['subset_rows_bagging'] = 0
-    config['subset_features_method'] = args.subset_features_method
+    config['subset_features_method'] = args_parsed_from_cmdline.subset_features_method
     config['subset_rows_method'] = 'random'
 
     # Preprocessing
-    config['summerize_after_prep'] = args.summerize_after_prep
+    config['summerize_after_prep'] = args_parsed_from_cmdline.summerize_after_prep
 
     # loss fn
-    config['kl_loss'] = args.kl_loss
+    config['kl_loss'] = args_parsed_from_cmdline.kl_loss
 
     # wandb
     # todo: for now, most are hard-coded
-    config['wandb_log'] = args.wandb_log
-    # config_sample['wandb_name'] = args.wandb_name
-    config['wandb_group'] = args.wandb_group
-    config['wandb_project'] = args.wandb_project
-    config['wandb_entity'] = args.wandb_entity
-    config['wandb_log_test_interval'] = args.validation_period
+    config['wandb_log'] = args_parsed_from_cmdline.wandb_log
+    # config_sample['wandb_name'] = args_parsed_from_cmdline.wandb_name
+    config['wandb_group'] = args_parsed_from_cmdline.wandb_group
+    config['wandb_project'] = args_parsed_from_cmdline.wandb_project
+    config['wandb_entity'] = args_parsed_from_cmdline.wandb_entity
+    config['wandb_log_test_interval'] = args_parsed_from_cmdline.validation_period
 
-    config = set_compatibility_params(config, args)
+    config = set_compatibility_params(config, args_parsed_from_cmdline)
 
     model_string = '_multiclass' + '_' + datetime.now().strftime("%m_%d_%Y_%H_%M_%S")
 
@@ -365,20 +367,24 @@ def parse_args():
     parser.add_argument('--private_data', action='store_true',
                         help='Train with differential privacy added to the dataset.')
     parser.add_argument('--private_val_data', action='store_true', help='Validation set is differentially private.')
-    parser.add_argument('--edg', nargs='+', type=str, default=["50", "1e-4", "1.2"],
+    # now it uses the default even without --private on the command line
+    parser.add_argument('--edg', nargs='+', type=str, default=["5.0", "1e-4", "1.2"],
                         help="Epsilon, delta, gradnorm for differential privacy.")
     parser.add_argument('--linear', action='store_true', help='Whether to use a linear model.')
-    args = parser.parse_args()
-    return args
+    args_parsed_from_cmdline = parser.parse_args()
+    return args_parsed_from_cmdline
 
 
-def train_loop():
-    args = parse_args()
+def train_loop(hyper_args=None):
+    args_parsed_from_cmdline = parse_args()
 
-    config, model_string = reload_config(config_type="real", longer=1, args=args)
+    config, model_string = reload_config(config_type="real", longer=1,
+                                         args_parsed_from_cmdline=args_parsed_from_cmdline)
 
     # TODO: check whether config_sample should be iterated within train_function
     # config_sample = evaluate_hypers(config, args)
+    """for k,v in hyper_args:
+        config[k] = v"""
 
     print("Saving config ...")
     simple_config = make_serializable(config.copy())

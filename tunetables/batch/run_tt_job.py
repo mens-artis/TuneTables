@@ -266,7 +266,7 @@ def main_f(_args):
                 _args.bptt = -1
             else:
                 _args.bptt = _args.bptt_backup
-            # Reseed ZS tasks to vary features and data
+            # Reseed zero-shot tasks to vary features and data
             _args.seed = base_seed
             if all_res_d.get(_task, None) is not None:
                 continue

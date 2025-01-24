@@ -9,22 +9,26 @@ from torch.nn import Module, TransformerEncoder
 from tunetables.layer import TransformerEncoderLayer, _get_activation_fn
 from tunetables.utils import SeqBN, bool_mask_to_att_mask
 
+
 class TransformerModel(nn.Module):
     def __init__(self, encoder, n_out, ninp, nhead, nhid, nlayers, dropout=0.0, style_encoder=None, y_encoder=None,
                  pos_encoder=None, decoder=None, input_normalization=False, init_method=None, pre_norm=False,
                  activation='gelu', recompute_attn=False, num_global_att_tokens=0, full_attention=False,
-                 all_layers_same_init=False, efficient_eval_masking=True, prefix_size=0, n_classes=2, prefix_label_probs=None, num_features=100, linear=False, private=False):
+                 all_layers_same_init=False, efficient_eval_masking=True, prefix_size=0, n_classes=2,
+                 prefix_label_probs=None, num_features=100, b_linear=False, private=False):
         super().__init__()
         self.model_type = 'Transformer'
         encoder_layer_creator = lambda: TransformerEncoderLayer(ninp, nhead, nhid, dropout, activation=activation,
-                                                                    pre_norm=pre_norm, recompute_attn=recompute_attn, linear=linear, private=private)
+                                                                    pre_norm=pre_norm, recompute_attn=recompute_attn,
+                                                                b_linear=False,
+                                                                private=private)
         self.transformer_encoder = TransformerEncoder(encoder_layer_creator(), nlayers)\
             if all_layers_same_init else TransformerEncoderDiffInit(encoder_layer_creator, nlayers)
         self.ninp = ninp
         self.encoder = encoder
         self.y_encoder = y_encoder
         self.pos_encoder = pos_encoder
-        self.linear = linear
+        self.linear = b_linear
         self.decoder = decoder(ninp, nhid, n_out) if decoder is not None else nn.Sequential(nn.Linear(ninp, nhid), nn.GELU(), nn.Linear(nhid, n_out))
         self.input_ln = SeqBN(ninp) if input_normalization else None
         self.style_encoder = style_encoder
@@ -35,7 +39,7 @@ class TransformerModel(nn.Module):
         self.prefix_size = prefix_size
         if self.prefix_size > 0:
             self.prefix_embedding = nn.Embedding(prefix_size, ninp)
-            #name the parameters in prefix_embedding to avoid confusion with the encoder
+            # name the parameters in prefix_embedding to avoid confusion with the encoder
             if prefix_label_probs is not None:
                 self.prefix_y_embedding = torch.multinomial(prefix_label_probs, prefix_size, replacement=True)
             else:
@@ -53,7 +57,7 @@ class TransformerModel(nn.Module):
                 "num_global_att_tokens: {}, full_attention: {}, all_layers_same_init: {}, efficient_eval_masking: {}, "
                 "prefix_size: {}, n_classes: {}, encoder: {}, y_encoder: {}, pos_encoder: {}, style_encoder: {}, linear: {}".format(ninp, nhead, nhid, nlayers, dropout, activation, recompute_attn,
                                                         num_global_att_tokens, full_attention, all_layers_same_init,
-                                                        efficient_eval_masking, prefix_size, n_classes, encoder, y_encoder, pos_encoder, style_encoder, linear))
+                                                        efficient_eval_masking, prefix_size, n_classes, encoder, y_encoder, pos_encoder, style_encoder, b_linear))
 
     def __setstate__(self, state):
         super().__setstate__(state)
@@ -148,14 +152,14 @@ class TransformerModel(nn.Module):
 
         if self.prefix_size > 0:
             single_eval_pos = single_eval_pos + self.prefix_size
-            #concatenate prefix embedding weights to x_src
+            # concatenate prefix embedding weights to x_src
             if len(x_src.shape) > len(self.prefix_embedding.weight.shape):
                 x_src = torch.cat([self.prefix_embedding.weight.unsqueeze(1), x_src], 0)
             elif len(x_src.shape) == len(self.prefix_embedding.weight.shape):
                 x_src = torch.cat([self.prefix_embedding.weight, x_src], 0)
             else:
                 x_src = torch.cat([x_src.unsqueeze(1), self.prefix_embedding.weight], 0)
-            #concatenate prefix embedding to y_src
+            # concatenate prefix embedding to y_src
             if len(y_src.shape) > len(self.prefix_y_embedding.shape):
                 y_src = torch.cat([self.prefix_y_embedding.to(self.prefix_embedding.weight.device).unsqueeze(1), y_src], 0)
             elif len(y_src.shape) == len(self.prefix_y_embedding.shape):
@@ -290,18 +294,21 @@ class TransformerEncoderDiffInit(Module):
 
         return output
 
-# class BoostedTransformer(TransformerModel):
-#     def __init__(self, encoder, n_out, ninp, nhead, nhid, nlayers, dropout=0.0, style_encoder=None, y_encoder=None,
-#                  pos_encoder=None, decoder=None, input_normalization=False, init_method=None, pre_norm=False,
-#                  activation='gelu', recompute_attn=False, num_global_att_tokens=0, full_attention=False,
-#                  all_layers_same_init=False, efficient_eval_masking=True, prefix_size=0, n_classes=2,
-#                  embed_path="embeddings", n_iters=10, boost_lr=1e-3):
-#         if prefix_size <= 0:
-#             raise ValueError("BoostedTransformer requires a positive prefix_size")
-#         super().__init__(encoder, n_out, ninp, nhead, nhid, nlayers, dropout=dropout, style_encoder=style_encoder, y_encoder=y_encoder, pos_encoder=pos_encoder, decoder=decoder, input_normalization=input_normalization, init_method=init_method, pre_norm=pre_norm, activation=activation, recompute_attn=recompute_attn, num_global_att_tokens=num_global_att_tokens, full_attention=full_attention, all_layers_same_init=all_layers_same_init, efficient_eval_masking=efficient_eval_masking, prefix_size=prefix_size, n_classes=n_classes)
+# class BoostedTransformer(TransformerModel): def __init__(self, encoder, n_out, ninp, nhead, nhid, nlayers,
+# dropout=0.0, style_encoder=None, y_encoder=None, pos_encoder=None, decoder=None, input_normalization=False,
+# init_method=None, pre_norm=False, activation='gelu', recompute_attn=False, num_global_att_tokens=0,
+# full_attention=False, all_layers_same_init=False, efficient_eval_masking=True, prefix_size=0, n_classes=2,
+# embed_path="embeddings", n_iters=10, boost_lr=1e-3): if prefix_size <= 0: raise ValueError("BoostedTransformer
+# requires a positive prefix_size") super().__init__(encoder, n_out, ninp, nhead, nhid, nlayers, dropout=dropout,
+# style_encoder=style_encoder, y_encoder=y_encoder, pos_encoder=pos_encoder, decoder=decoder,
+# input_normalization=input_normalization, init_method=init_method, pre_norm=pre_norm, activation=activation,
+# recompute_attn=recompute_attn, num_global_att_tokens=num_global_att_tokens, full_attention=full_attention,
+# all_layers_same_init=all_layers_same_init, efficient_eval_masking=efficient_eval_masking, prefix_size=prefix_size,
+# n_classes=n_classes)
 
 
 #     def forward(self, src, src_mask=None, single_eval_pos=None):
 #         super().forward(src, src_mask, single_eval_pos)
 
 #     def fit():
+#

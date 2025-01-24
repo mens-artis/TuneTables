@@ -18,7 +18,7 @@ wandb~=0.19.3
 
 # Optional (for optuna)
 # optuna==3.5.0
-setuptools~=65.5.0
+setuptools~=75.8.0
 torch~=2.5.1
 pandas~=2.2.3
 diffprivlib~=0.6.5
@@ -26,3 +26,7 @@ scipy~=1.15.1
 matplotlib~=3.10.0
 opacus~=1.5.2
 optuna~=4.1.0
+requests~=2.31.0
+
+faiss
+umap

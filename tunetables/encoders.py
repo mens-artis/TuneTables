@@ -221,7 +221,7 @@ class Conv(nn.Module):
         return self.linear(x)
 
 
-class CanEmb(nn.Embedding):
+class CanonicalEmbedding(nn.Embedding):
     def __init__(self, num_features, num_embeddings: int, embedding_dim: int, *args, **kwargs):
         assert embedding_dim % num_features == 0
         embedding_dim = embedding_dim // num_features
@@ -229,13 +229,13 @@ class CanEmb(nn.Embedding):
 
     def forward(self, x):
         lx = x.long()
-        assert (lx == x).all(), "CanEmb only works with tensors of whole numbers"
+        assert (lx == x).all(), "CanonicalEmbedding only works with tensors of whole numbers"
         x = super().forward(lx)
         return x.view(*x.shape[:-2], -1)
 
 
 def get_Canonical(num_classes):
-    return lambda num_features, emsize: CanEmb(num_features, num_classes, emsize)
+    return lambda num_features, emsize: CanonicalEmbedding(num_features, num_classes, emsize)
 
 
 def get_Embedding(num_embs_per_feature=100):

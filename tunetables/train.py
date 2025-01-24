@@ -679,8 +679,9 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
             for batch, (data, targets, _) in enumerate(real_data_val_dl):
 
                 if batch == 0 and verbose:
-                    print("Data sample (train features, train labels, val/test features, val/test labels): ",
-                          td[0][:10], "\n", td[1][:10], "\n", data[0][:10], "\n", data[1][:10], "\n")
+                    print("turned off sample printing")
+                    # print("Data sample (train features, train labels, val/test features, val/test labels): ",
+                    #      td[0][:10], "\n", td[1][:10], "\n", data[0][:10], "\n", data[1][:10], "\n")
 
                 if extra_prior_kwargs_dict.get('debug', False):
                     # Extra safeguard against test set contamination, permute label order before passing into model
@@ -1174,7 +1175,7 @@ def train(train_args, dataset, training_criterion, _encoder_generator, emsize=20
                                                           " not have the correct grad requirement!").format(n)
             t_model.train()  # Turn on the train mode
             total_loss, _, _time_to_get_batch, _forward_time, step_time, _, _ = \
-                train_epoch(t_model, t_optim, boost_this_epoch, eval_model=_eval_model, bptt_search=False)
+                train_epoch(t_model, t_optim, _dl, boost_this_epoch=boost_this_epoch, eval_model=_eval_model, bptt_search=False)
             val_score = val_score_nc = None
             # val_score_concat = val_score_nc_concat = test_score = test_score_nc = None
             ####

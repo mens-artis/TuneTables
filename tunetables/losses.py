@@ -5,9 +5,11 @@ from torch import nn
 class Losses():
     gaussian = nn.GaussianNLLLoss(full=True, reduction='none')
     mse = nn.MSELoss(reduction='none')
+
     def ce(num_classes):
         num_classes = num_classes.shape[0] if torch.is_tensor(num_classes) else num_classes
         return nn.CrossEntropyLoss(reduction='none', weight=torch.ones(num_classes))
+
     bce = nn.BCEWithLogitsLoss(reduction='none')
 
 
@@ -34,10 +36,10 @@ def JointBCELossWithLogits(output, target):
     # target shape: (S, B, SL)
     # Loss = -log(mean_NS(prod_SL(p(target_SL, output_NS))))
     # Here at the moment NS = SL
-    output = output.unsqueeze(-1).repeat(1, 1, 1, target.shape[-1]) # (S, B, NS, SL)
-    output = output.permute(2, 0, 1, 3) # (NS, S, B, SL)
+    output = output.unsqueeze(-1).repeat(1, 1, 1, target.shape[-1])  # (S, B, NS, SL)
+    output = output.permute(2, 0, 1, 3)  # (NS, S, B, SL)
     print(target.shape, output.shape)
-    loss = (target * torch.sigmoid(output)) + ((1-target) * (1-torch.sigmoid(output)))
+    loss = (target * torch.sigmoid(output)) + ((1 - target) * (1 - torch.sigmoid(output)))
     loss = loss.prod(-1)
     loss = loss.mean(0)
     loss = -torch.log(loss)
@@ -52,13 +54,14 @@ class ScaledSoftmaxCE(nn.Module):
 
         logprobs = logits.softmax(-1)
 
+
 def kl_divergence(clf_out_a, clf_out_b, reduction="mean"):
     assert clf_out_a.shape == clf_out_b.shape
     kl_divs_per_example = torch.sum(
         torch.nn.functional.softmax(clf_out_a, dim=1)
         * (
-            torch.nn.functional.log_softmax(clf_out_a, dim=1)
-            - torch.nn.functional.log_softmax(clf_out_b, dim=1)
+                torch.nn.functional.log_softmax(clf_out_a, dim=1)
+                - torch.nn.functional.log_softmax(clf_out_b, dim=1)
         ),
         dim=1,
     )

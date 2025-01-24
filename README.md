@@ -12,7 +12,10 @@ While TabPFN achieves very strong performance on small tabular datasets, its cur
 
 This codebase extends the excellent public repository [TabPFN](https://github.com/automl/tabpfn), by Noah Hollmann, Samuel Müller, Katharina Eggensperger, and Frank Hutter.
 
-## Quick start
+## Privacy
+
+The private program looks for files like TuneTables\\tunetables\\data\\openml_connect-4_146195\\X_eps_50.0.npy.gz.
+These files are externally created at the moment.
 
 Please check out our notebook, [Getting Started with TuneTables](https://www.kaggle.com/code/benfeuer/getting-started-with-tunetables), for an interactive quick start.
 
@@ -106,14 +109,18 @@ Examples of task and dataset lists can be found in the `metadata` directory.
 
 ### Tasks
 
-TuneTables jobs are organized into `tasks`, which are then executed in batches over a list of `datasets`. Examples of task and dataset lists can be found in the `metadata` directory. Here are some example tasks which can be included in a TuneTables batch.
+TuneTables jobs are organized into `tasks`, which are then executed in batches over a list of `datasets`. 
+Examples of task and dataset lists can be found in the `metadata` directory. 
+Here are some example tasks which can be included in a TuneTables batch.
 
 ```bash
-ft #fine tune TabPFN end-to-end
-pt10 #learn a prompt with an embedding of dimensions (10, ndim)
-pt1000-10ens-randinit-avg-top2-reseed #learn an ensemble of 10 prompts, each randomly initialized, with reseeded data
-tunetables-long #the algorithm collection used for the results in our paper (note -- this will be slow on large datasets!)
-tunetables-short #an abbreviated version of TuneTables which runs much faster on large datasets, at the cost of some accuracy
+ft # fine tune TabPFN end-to-end task (section 2.2 Fine-tuning, Appendix E.1 Adapting TuneTables to regression problems, Table 12: Ablation on TuneTables variants.) (Note that For all algorithms other than TuneTables, we perform light hyperparameter
+tuning by running one default setting and 29 iterations of random search using Optuna [4]). Note that Fine-tuned setting. In the fine-tuned setting, our parameters are the same, except that we use a
+lower fixed learning rate of 1e − 3.) (Note that the paper doesnt go out of its way to make a distinction between fine tuning and soft prompt tuning)
+pt10 # learn a prompt with an embedding of dimensions (10, ndim) task (Section 3 TuneTables, Appendix C Hyperparameter settings for TuneTables, Table 5: TuneTables and TabPFNs3000 hyperparameter configurations based on number of samples)
+pt1000-10ens-randinit-avg-top2-reseed #learn an ensemble of 10 prompts, each randomly initialized, with reseeded data task (Appendix C.4 Ablation study, Table 12: Ablation on TuneTables variants, Table 13: Ensembled models outperform models trained on a single tuned prompt; with ensembling, the training and testing without real-data context (NC) setting matches or exceeds the setting with context (C). 
+tunetables-long #the algorithm collection used for the results in our paper (note -- this will be slow on large datasets!) task
+tunetables-short #an abbreviated version of TuneTables which runs much faster on large datasets, at the cost of some accuracy task
 ```
 
 The complete list of prompt-tuning and fine-tuning tuning tasks can be found in `tunetables/batch/all_tasks.py`.

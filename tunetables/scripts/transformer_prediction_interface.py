@@ -1,6 +1,7 @@
 import torch
 import random
 import pathlib
+import time
 
 import sys
 sys.path.append("../")
@@ -25,6 +26,7 @@ import os
 import pickle
 import io
 
+
 class CustomUnpickler(pickle.Unpickler):
     def find_class(self, module, name):
         if name == 'Manager':
@@ -41,19 +43,22 @@ class CustomUnpickler(pickle.Unpickler):
         else:
             return super().find_class(module, name)
 
-def load_model_workflow(i, e, add_name, base_path, device='cpu', eval_addition='', only_inference=True, prefix_size=0, n_classes=2):
+
+def load_model_workflow(i, e, add_name, base_path, device='cpu', eval_addition='',
+                        only_inference=True, prefix_size=0, n_classes=2):
     """
     Workflow for loading a model and setting appropriate parameters for diffable hparam tuning.
 
     :param i:
     :param e:
-    :param eval_positions_valid:
+    # :param eval_positions_valid:
     :param add_name:
     :param base_path:
     :param device:
     :param eval_addition:
     :return:
     """
+
     def get_file(e):
         """
         Returns the different paths of model_file, model_path and results_file
@@ -94,22 +99,22 @@ def load_model_workflow(i, e, add_name, base_path, device='cpu', eval_addition='
 
     if model_file is None:
         model_file, model_path, results_file = get_file(e)
-        raise Exception('No checkpoint found at '+str(model_path))
+        raise Exception('No checkpoint found at ' + str(model_path))
 
-
-    #print(f'Loading {model_file}')
+    # print(f'Loading {model_file}')
     if only_inference:
         # print('Loading model that can be used for inference only')
-        model, c = load_model_only_inference(base_path, model_file, device, prefix_size=prefix_size, n_classes=n_classes)
+        model, c = load_model_only_inference(base_path, model_file, device, prefix_size=prefix_size,
+                                             n_classes=n_classes)
     else:
-        #until now also only capable of inference
+        # until now also only capable of inference
         model, c = load_model(base_path, model_file, device, eval_positions=[], verbose=False)
-    #model, c = load_model(base_path, model_file, device, eval_positions=[], verbose=False)
+    # model, c = load_model(base_path, model_file, device, eval_positions=[], verbose=False)
 
     return model, c, results_file
 
-class TabPFNClassifier(BaseEstimator, ClassifierMixin):
 
+class TabPFNClassifier(BaseEstimator, ClassifierMixin):
     models_in_memory = {}
 
     def __init__(self, device='cpu', base_path=pathlib.Path(__file__).parent.parent.resolve(), model_string='',
@@ -152,18 +157,21 @@ class TabPFNClassifier(BaseEstimator, ClassifierMixin):
 
         # Model file specification (Model name, Epoch)
         i = 0
-        model_key = model_string+'|'+str(device)
+        model_key = model_string + '|' + str(device)
         if model_key in self.models_in_memory and use_memory:
             print("Loading model from memory")
             model, c, results_file = self.models_in_memory[model_key]
         else:
-            model, c, results_file = load_model_workflow(i, -1, add_name=model_string, base_path=base_path, device=device,
-                                                         eval_addition='', only_inference=only_inference, prefix_size=prefix_size, n_classes=n_classes)
+            model, c, results_file = load_model_workflow(i, -1, add_name=model_string, base_path=base_path,
+                                                         device=device,
+                                                         eval_addition='', only_inference=only_inference,
+                                                         prefix_size=prefix_size, n_classes=n_classes)
             if use_memory:
                 self.models_in_memory[model_key] = (model, c, results_file)
                 if len(self.models_in_memory) == 2:
-                    print('Multiple models in memory. This might lead to memory issues. Consider calling remove_models_from_memory()')
-        #style, temperature = self.load_result_minimal(style_file, i, e)
+                    print(
+                        'Multiple models in memory. This might lead to memory issues. Consider calling remove_models_from_memory()')
+        # style, temperature = self.load_result_minimal(style_file, i, e)
 
         self.device = device
         self.model = model
@@ -223,12 +231,12 @@ class TabPFNClassifier(BaseEstimator, ClassifierMixin):
         Validates the training set and stores it.
 
         If clf.no_grad (default is True):
-        X, y should be of type np.array
+        x, y should be of type np.array
         else:
-        X should be of type torch.Tensors (y can be np.array or torch.Tensor)
+        x should be of type torch.Tensors (y can be np.array or torch.Tensor)
         """
         if self.no_grad:
-            # Check that X and y have correct shape
+            # Check that x and y have correct shape
             X, y = check_X_y(X, y, force_all_finite=False)
         # Store the classes seen during fit
         y = self._validate_targets(y)
@@ -240,23 +248,24 @@ class TabPFNClassifier(BaseEstimator, ClassifierMixin):
 
         if (X.shape[1] > self.max_num_features):
             if self.subsample_features:
-                print('WARNING: The number of features for this classifier is restricted to ', self.max_num_features, ' and will be subsampled.')
+                print('WARNING: The number of features for this classifier is restricted to ', self.max_num_features,
+                      ' and will be subsampled.')
             else:
                 raise ValueError("The number of features for this classifier is restricted to ", self.max_num_features)
         if len(np.unique(y)) > self.max_num_classes:
             raise ValueError("The number of classes for this classifier is restricted to ", self.max_num_classes)
         if X.shape[0] > 1024 and not overwrite_warning:
-            raise ValueError("⚠️ WARNING: TabPFN is not made for datasets with a trainingsize > 1024. Prediction might take a while, be less reliable. We advise not to run datasets > 10k samples, which might lead to your machine crashing (due to quadratic memory scaling of TabPFN). Please confirm you want to run by passing overwrite_warning=True to the fit function.")
-
+            raise ValueError(
+                "⚠️ WARNING: TabPFN is not made for datasets with a trainingsize > 1024. Prediction might take a while, be less reliable. We advise not to run datasets > 10k samples, which might lead to your machine crashing (due to quadratic memory scaling of TabPFN). Please confirm you want to run by passing overwrite_warning=True to the fit function.")
 
         # Return the classifier
         return self
 
     def predict_proba(self, X, normalize_with_test=False, return_logits=False, return_early=False):
         """
-        Predict the probabilities for the input X depending on the training set previously passed in the method fit.
+        Predict the probabilities for the input x depending on the training set previously passed in the method fit.
 
-        If no_grad is true in the classifier the function takes X as a numpy.ndarray. If no_grad is false X must be a
+        If no_grad is true in the classifier the function takes x as a numpy.ndarray. If no_grad is false x must be a
         torch tensor and is not fully checked.
         """
         # Check is fit had been called
@@ -268,12 +277,12 @@ class TabPFNClassifier(BaseEstimator, ClassifierMixin):
             X_full = np.concatenate([self.X_, X], axis=0)
             X_full = torch.tensor(X_full, device=self.device).float().unsqueeze(1)
         else:
-            assert (torch.is_tensor(self.X_) & torch.is_tensor(X)), "If no_grad is false, this function expects X as " \
+            assert (torch.is_tensor(self.X_) & torch.is_tensor(X)), "If no_grad is false, this function expects x as " \
                                                                     "a tensor to calculate a gradient"
             X_full = torch.cat((self.X_, X), dim=0).float().unsqueeze(1).to(self.device)
 
             if int(torch.isnan(X_full).sum()):
-                print('X contains nans and the gradient implementation is not designed to handel nans.')
+                print('x contains nans and the gradient implementation is not designed to handel nans.')
 
         y_full = np.concatenate([self.y_, np.zeros(shape=X.shape[0])], axis=0)
         y_full = torch.tensor(y_full, device=self.device).float().unsqueeze(1)
@@ -309,7 +318,7 @@ class TabPFNClassifier(BaseEstimator, ClassifierMixin):
             return y, p.max(axis=-1)
         return y
 
-import time
+
 def transformer_predict(model, eval_xs, eval_ys, eval_position,
                         device='cpu',
                         max_features=100,
@@ -322,7 +331,7 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
                         softmax_temperature=0.0,
                         multiclass_decoder='permutation',
                         preprocess_transform='mix',
-                        categorical_feats=[],
+                        categorical_feats=None,
                         feature_shift_decoder=False,
                         N_ensemble_configurations=10,
                         batch_size_inference=16,
@@ -360,7 +369,10 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
     :param metric_used:
     :return:
     """
+    if categorical_feats is None:
+        categorical_feats = []
     num_classes = len(torch.unique(eval_ys))
+
     def predict(eval_xs, eval_ys, used_style, softmax_temperature, return_logits):
         # Initialize results array size S, B, Classes
         # no_grad disables inference_mode, because otherwise the gradients are lost
@@ -368,20 +380,20 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
         with inference_mode_call:
             start = time.time()
             output = model(
-                    (used_style.repeat(eval_xs.shape[1], 1) if used_style is not None else None, eval_xs, eval_ys.float()),
-                    single_eval_pos=eval_position)[:, :, 0:num_classes]
+                (used_style.repeat(eval_xs.shape[1], 1) if used_style is not None else None, eval_xs, eval_ys.float()),
+                single_eval_pos=eval_position)[:, :, 0:num_classes]
 
             output = output[:, :, 0:num_classes] / torch.exp(softmax_temperature)
             if not return_logits:
                 output = torch.nn.functional.softmax(output, dim=-1)
-            #else:
+            # else:
             #    output[:, :, 1] = model((style.repeat(eval_xs.shape[1], 1) if style is not None else None, eval_xs, eval_ys.float()),
             #               single_eval_pos=eval_position)
 
             #    output[:, :, 1] = torch.sigmoid(output[:, :, 1]).squeeze(-1)
             #    output[:, :, 0] = 1 - output[:, :, 1]
 
-        #print('RESULTS', eval_ys.shape, torch.unique(eval_ys, return_counts=True), output.mean(axis=0))
+        # print('RESULTS', eval_ys.shape, torch.unique(eval_ys, return_counts=True), output.mean(axis=0))
 
         return output
 
@@ -424,7 +436,8 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
                 try:
                     pt.fit(eval_xs[0:eval_position, col:col + 1])
                     trans = pt.transform(eval_xs[:, col:col + 1])
-                    # print(scipy.stats.spearmanr(trans[~np.isnan(eval_xs[:, col:col+1])], eval_xs[:, col:col+1][~np.isnan(eval_xs[:, col:col+1])]))
+                    # print(scipy.stats.spearmanr(trans[~np.isnan(eval_xs[:, col:col+1])], eval_xs[:, col:col+1][
+                    #  ~np.isnan(eval_xs[:, col:col+1])]))
                     eval_xs[:, col:col + 1] = trans
                 except:
                     pass
@@ -435,8 +448,8 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
 
         # TODO: Caution there is information leakage when to_ranking is used, we should not use it
         eval_xs = remove_outliers(eval_xs, normalize_positions=-1 if normalize_with_test else eval_position) \
-                if not normalize_to_ranking else normalize_data(to_ranking_low_mem(eval_xs))
-        # Rescale X
+            if not normalize_to_ranking else normalize_data(to_ranking_low_mem(eval_xs))
+        # Rescale x
         eval_xs = normalize_by_used_features_f(eval_xs, eval_xs.shape[-1], max_features,
                                                normalize_with_sqrt=normalize_with_sqrt)
 
@@ -465,38 +478,45 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
         softmax_temperature = torch.log(torch.tensor([0.8]))
 
     styles_configurations = range(0, num_styles)
+
     def get_preprocess(i):
         if i == 0:
             return 'power_all'
-#            if i == 1:
-#                return 'robust_all'
+        #            if i == 1:
+        #                return 'robust_all'
         if i == 1:
             return 'none'
 
-    preprocess_transform_configurations = ['none', 'power_all'] if preprocess_transform == 'mix' else [preprocess_transform]
+    preprocess_transform_configurations = ['none', 'power_all'] if preprocess_transform == 'mix' else [
+        preprocess_transform]
 
     if seed is not None:
         # print('setting torch seed to', seed)
         torch.manual_seed(seed)
 
     feature_shift_configurations = torch.randperm(eval_xs.shape[2]) if feature_shift_decoder else [0]
-    class_shift_configurations = torch.randperm(len(torch.unique(eval_ys))) if multiclass_decoder == 'permutation' else [0]
+    class_shift_configurations = torch.randperm(
+        len(torch.unique(eval_ys))) if multiclass_decoder == 'permutation' else [0]
 
     ensemble_configurations = list(itertools.product(class_shift_configurations, feature_shift_configurations))
     rng = random.Random(seed)
     rng.shuffle(ensemble_configurations)
-    ensemble_configurations = list(itertools.product(ensemble_configurations, preprocess_transform_configurations, styles_configurations))
+    ensemble_configurations = list(
+        itertools.product(ensemble_configurations, preprocess_transform_configurations, styles_configurations))
     ensemble_configurations = ensemble_configurations[0:N_ensemble_configurations]
 
     output = None
     eval_xs_transformed = {}
     inputs, labels = [], []
     start = time.time()
+    style_ = None
+    softmax_temperature_ = None
     for ensemble_configuration in ensemble_configurations:
         # print('ensemble_configuration', ensemble_configuration)
-        (class_shift_configuration, feature_shift_configuration), preprocess_transform_configuration, styles_configuration = ensemble_configuration
+        (class_shift_configuration,
+         feature_shift_configuration), preprocess_transform_configuration, styles_configuration = ensemble_configuration
 
-        style_ = style[styles_configuration:styles_configuration+1, :] if style is not None else style
+        style_ = style[styles_configuration:styles_configuration + 1, :] if style is not None else style
         softmax_temperature_ = softmax_temperature[styles_configuration]
 
         eval_xs_, eval_ys_ = eval_xs.clone(), eval_ys.clone()
@@ -511,9 +531,10 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
 
         eval_ys_ = ((eval_ys_ + class_shift_configuration) % num_classes).float()
 
-        eval_xs_ = torch.cat([eval_xs_[..., feature_shift_configuration:],eval_xs_[..., :feature_shift_configuration]],dim=-1)
+        eval_xs_ = torch.cat([eval_xs_[..., feature_shift_configuration:], eval_xs_[..., :feature_shift_configuration]],
+                             dim=-1)
 
-        # Extend X
+        # Extend x
         if extend_features:
             eval_xs_ = torch.cat(
                 [eval_xs_,
@@ -525,35 +546,41 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
     inputs = torch.split(inputs, batch_size_inference, dim=1)
     labels = torch.cat(labels, 1)
     labels = torch.split(labels, batch_size_inference, dim=1)
-    #print('PREPROCESSING TIME', str(time.time() - start))
+    # print('PREPROCESSING TIME', str(time.time() - start))
     outputs = []
     start = time.time()
     for batch_input, batch_label in zip(inputs, labels):
-        #preprocess_transform_ = preprocess_transform if styles_configuration % 2 == 0 else 'none'
+        # preprocess_transform_ = preprocess_transform if styles_configuration % 2 == 0 else 'none'
         import warnings
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",
                                     message="None of the inputs have requires_grad=True. Gradients will be None")
             warnings.filterwarnings("ignore",
-                                    message="torch.cuda.amp.autocast only affects CUDA ops, but CUDA is not available.  Disabling.")
+                                    message="torch.cuda.amp.autocast only affects CUDA ops, but CUDA is not "
+                                            "available.  Disabling.")
             if device == 'cpu':
-                output_batch = checkpoint(predict, batch_input, batch_label, style_, softmax_temperature_, True, use_reentrant=True)
+                output_batch = checkpoint(predict, batch_input, batch_label, style_, softmax_temperature_, True,
+                                          use_reentrant=True)
             else:
                 with torch.cuda.amp.autocast(enabled=fp16_inference):
-                    output_batch = checkpoint(predict, batch_input, batch_label, style_, softmax_temperature_, True, use_reentrant=True)
+                    output_batch = checkpoint(predict, batch_input, batch_label, style_, softmax_temperature_, True,
+                                              use_reentrant=True)
         outputs += [output_batch]
-    #print('MODEL INFERENCE TIME ('+str(batch_input.device)+' vs '+device+', '+str(fp16_inference)+')', str(time.time()-start))
+    # print('MODEL INFERENCE TIME ('+str(batch_input.device)+' vs '+device+', '+str(fp16_inference)+')',
+    # str(time.time()-start))
 
     outputs = torch.cat(outputs, 1)
     if return_early:
         return outputs
 
     for i, ensemble_configuration in enumerate(ensemble_configurations):
-        (class_shift_configuration, feature_shift_configuration), preprocess_transform_configuration, styles_configuration = ensemble_configuration
-        output_ = outputs[:, i:i+1, :]
-        output_ = torch.cat([output_[..., class_shift_configuration:],output_[..., :class_shift_configuration]],dim=-1)
+        (class_shift_configuration,
+         feature_shift_configuration), preprocess_transform_configuration, styles_configuration = ensemble_configuration
+        output_ = outputs[:, i:i + 1, :]
+        output_ = torch.cat([output_[..., class_shift_configuration:], output_[..., :class_shift_configuration]],
+                            dim=-1)
 
-        #output_ = predict(eval_xs, eval_ys, style_, preprocess_transform_)
+        # output_ = predict(eval_xs, eval_ys, style_, preprocess_transform_)
         if not average_logits and not return_logits:
             # transforms every ensemble_configuration into a probability -> equal contribution of every configuration
             output_ = torch.nn.functional.softmax(output_, dim=-1)
@@ -567,6 +594,7 @@ def transformer_predict(model, eval_xs, eval_ys, eval_position,
 
     return output
 
+
 def get_params_from_config(c):
     return {'max_features': c['num_features']
         , 'rescale_features': c["normalize_by_used_features"]
@@ -575,19 +603,16 @@ def get_params_from_config(c):
             }
 
 
-
-
-
 class TuneTablesClassifier(BaseEstimator, ClassifierMixin):
 
-    def __init__(self, user_args = None):
-        class Args:
-            pass
+    def __init__(self, user_args=None):
+        self.num_classes = None
+        self.eval_pos = None
+        self.data_for_fitting = None
+        self.model = None
 
-        args = Args()
-
-        #load default configuration settings
-        args = self.get_default_config(args)
+        # load default configuration settings
+        args = self.get_default_config()
 
         if user_args is not None:
             for k, v in user_args.items():
@@ -602,12 +627,16 @@ class TuneTablesClassifier(BaseEstimator, ClassifierMixin):
             if isinstance(v, ConfigSpace.hyperparameters.CategoricalHyperparameter):
                 self.config[k] = v.default_value
 
-    def get_default_config(self, args):
+    @classmethod
+    def get_default_config(cls):
+        class Args:
+            pass
+        args = Args()
         # Hardcoded parameters
         args.resume = '../models/prior_diff_real_checkpoint_n_0_epoch_42.cpkt'
         args.save_path = './logs'
         args.prior_type = 'real'
-        args.data_path = "" #'/home/benfeuer/TabPFN-pt/tabpfn/data/openml__colic__27'
+        args.data_path = ""  # '/home/benfeuer/TabPFN-pt/tabpfn/data/openml__colic__27'
         args.prompt_tuning = True
         args.tuned_prompt_size = 10
         args.tuned_prompt_label_balance = 'equal'
@@ -664,31 +693,63 @@ class TuneTablesClassifier(BaseEstimator, ClassifierMixin):
 
         return args
 
-    def fit(self, x, y, cat_idx = []):
+    def fit(self, x, y, cat_idx=None):
 
+        if cat_idx is None:
+            cat_idx = []
         assert isinstance(x, np.ndarray), "x must be a numpy array"
         assert isinstance(y, np.ndarray), "x must be a numpy array"
         assert len(x.shape) == 2, "x must be a 2D array (samples, features)"
         assert len(y.shape) == 1, "y must be a 1D array"
-        
-        self.model, self.data_for_fitting, _ = train_function(self.config.copy(), 0, self.model_string, is_wrapper = True, x_wrapper = x, y_wrapper = y, cat_idx = cat_idx)
+
+        self.model, self.data_for_fitting, _ = train_function(
+            self.config.copy(),
+            0,
+            self.model_string,
+            is_wrapper=True,
+            x_wrapper=x,
+            y_wrapper=y,
+            cat_idx=cat_idx)
         self.eval_pos = self.data_for_fitting[0].shape[0]
         self.num_classes = len(np.unique(y))
 
-    def predict(self, x, cat_idx = []):
+    def predict(self, x, cat_idx=None):
 
+        if cat_idx is None:
+            cat_idx = []
         assert isinstance(x, np.ndarray), "x must be a numpy array"
-        
-        self.config['epochs'] = 0 # only process data
-        _, _, test_loader = train_function(self.config, 0, self.model_string, is_wrapper = True, x_wrapper = x, y_wrapper = np.random.randint(self.num_classes, size=x.shape[0]), cat_idx = cat_idx)
-        out = real_data_eval_out(r_model=self.model, cl=self.eval_pos, train_data=self.data_for_fitting, val_dl=test_loader)
+
+        self.config['epochs'] = 0  # only process data
+        _, _, test_loader = train_function(
+            self.config,
+            0,
+            self.model_string,
+            is_wrapper=True,
+            x_wrapper=x,
+            y_wrapper=np.random.randint(self.num_classes, size=x.shape[0]),
+            cat_idx=cat_idx)
+        out = real_data_eval_out(r_model=self.model, cl=self.eval_pos, train_data=self.data_for_fitting,
+                                 val_dl=test_loader)
         return out[1]
 
-    def predict_proba(self, x, cat_idx = []):
+    def predict_proba(self, x, cat_idx=None):
 
+        if cat_idx is None:
+            cat_idx = []
         assert isinstance(x, np.ndarray), "x must be a numpy array"
-        
-        self.config['epochs'] = 0 # only process data
-        _, _, test_loader = train_function(self.config, 0, self.model_string, is_wrapper = True, x_wrapper = x, y_wrapper = np.random.randint(self.num_classes, size=x.shape[0]), cat_idx = cat_idx)
-        out = real_data_eval_out(r_model=self.model, cl=self.eval_pos, train_data=self.data_for_fitting, val_dl=test_loader, return_probs=True)
+
+        self.config['epochs'] = 0  # only process data
+        _, _, test_loader = train_function(
+            self.config, 0,
+            self.model_string,
+            is_wrapper=True,
+            x_wrapper=x,
+            y_wrapper=np.random.randint(self.num_classes, size=x.shape[0]),
+            cat_idx=cat_idx)
+        out = real_data_eval_out(
+            r_model=self.model,
+            cl=self.eval_pos,
+            train_data=self.data_for_fitting,
+            val_dl=test_loader,
+            return_probs=True)
         return out[1]

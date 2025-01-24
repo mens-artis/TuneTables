@@ -119,8 +119,8 @@ def evaluate(datasets, bptt, eval_positions, metric_used, model, device='cpu'
     # For each dataset
     for [ds_name, X, y, categorical_feats, _, _] in datasets:
         dataset_bptt = min(len(X), bptt)
-        #if verbose and dataset_bptt < bptt:
-        #    print(f'Dataset too small for given bptt, reducing to {len(X)} ({bptt})')
+        # if verbose and dataset_bptt < bptt:
+        #    print(f'Dataset too small for given bptt, reducing to {len(x)} ({bptt})')
 
         aggregated_metric, num = torch.tensor(0.0), 0
         ds_result = {}
@@ -248,7 +248,7 @@ def evaluate_position(X, y, categorical_feats, model, bptt
     """
     Evaluates a dataset with a 'bptt' number of training samples.
 
-    :param X: Dataset X
+    :param X: Dataset x
     :param y: Dataset labels
     :param categorical_feats: Indices of categorical features.
     :param model: Model function

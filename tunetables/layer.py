@@ -658,8 +658,8 @@ class TransformerEncoderLayer(Module):
 
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1, activation="relu",
                  layer_norm_eps=1e-5, batch_first=False, pre_norm=False,
-                 device=None, dtype=None, recompute_attn=False, private=False) -> None:
-                 # TODO device=None, dtype=None, recompute_attn=False, linear=False) -> None:
+                 device=None, dtype=None, recompute_attn=False, b_linear=False, private=False) -> None:
+                 # TODO device=None, dtype=None, recompute_attn=False, b_linear=False) -> None:
         factory_kwargs = {'device': device, 'dtype': dtype}
         super().__init__()
         self.private = private
@@ -670,11 +670,11 @@ class TransformerEncoderLayer(Module):
             #                                     **factory_kwargs)
 
             self.self_attn = DPMultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True,
-                                                **factory_kwargs)
+                                                  **factory_kwargs)
         else:
             self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first,
                                                 **factory_kwargs)
-        if linear:
+        if b_linear:
             self.self_attn = TaylorMultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first,
                                                       **factory_kwargs)
         else:
@@ -743,10 +743,12 @@ class TransformerEncoderLayer(Module):
         elif isinstance(src_mask, int):
             assert src_key_padding_mask is None
             single_eval_position = src_mask
+            # TODO: the following two lines were replaced by opacus branch (probably older) the block bwteen ###
+            #  these lines are necessary because src2 has to exist after the elif else
+            #  although src_left and src_right are redefined on lines 762, 763...
+            src_left = self.self_attn(src_[:single_eval_position], src_[:single_eval_position], src_[:single_eval_position])[0]
+            src_right = self.self_attn(src_[single_eval_position:], src_[:single_eval_position], src_[:single_eval_position])[0]
             src2 = torch.cat([src_left, src_right], dim=0)
-            # TODO: the follwing two lines were replaced by opacus branch (probably older) the block bwteen ###
-            #  src_left = self.self_attn(src_[:single_eval_position], src_[:single_eval_position], src_[:single_eval_position])[0]
-            #  src_right = self.self_attn(src_[single_eval_position:], src_[:single_eval_position], src_[:single_eval_position])[0]
             #####
             if self.private:
                 src_ = src_.view(-1, src.shape[-1])
@@ -757,6 +759,7 @@ class TransformerEncoderLayer(Module):
             else:
                 target_left = src[:single_eval_position]
                 target_right = src[single_eval_position:]
+            # TODO: these 2 assignments are only used in the if below
             src_left = self.self_attn(target_left, target_left, target_left)[0]
             src_right = self.self_attn(target_right, target_left, target_left)[0]
             if self.private:
@@ -765,7 +768,9 @@ class TransformerEncoderLayer(Module):
 
         else:
             if self.recompute_attn:
-                src2 = checkpoint(self.self_attn, src_, src_, src_, src_key_padding_mask, True, src_mask, use_reentrant=True)[0]
+                src2 = checkpoint(self.self_attn, src_, src_, src_,
+                                  src_key_padding_mask, True, src_mask,
+                                  use_reentrant=True)[0]
             else:
                 src2 = self.self_attn(src_, src_, src_, attn_mask=src_mask,
                                       key_padding_mask=src_key_padding_mask)[0]
